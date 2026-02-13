@@ -1,4 +1,4 @@
-# Random Batch Neural ODEs (rNODE)
+# Random Batch Neural ODEs
 
 <p align="center">
   <img src="assets/rnode_header.gif" alt="Neural ODE vs rNODE (dropout)" width="700">
