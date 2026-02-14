@@ -39,6 +39,13 @@ def _rc():
     })
 
 
+def _as_numpy(x):
+    """Convert tensors/arrays to NumPy without relying on tensor.numpy()."""
+    if isinstance(x, torch.Tensor):
+        return np.asarray(x.detach().cpu().tolist())
+    return np.asarray(x)
+
+
 def save(fig, path):
     fig.savefig(f"{path}.pdf", dpi=DPI, bbox_inches="tight")
     fig.savefig(f"{path}.png", dpi=DPI, bbox_inches="tight")
@@ -126,19 +133,19 @@ def fig1_trajectories(mc, mt, Xc, yc, Xt, yt, cfg, out):
     fig, axes = plt.subplots(1, 5, figsize=(22, 4.2))
 
     def _pt(ax, traj, y):
-        lb = y.squeeze().numpy(); cm = plt.get_cmap("bwr")
+        lb = _as_numpy(y.squeeze()); cm = plt.get_cmap("bwr")
         for i in range(traj.shape[1]):
-            ax.plot(traj[:, i, 0].numpy(), traj[:, i, 1].numpy(),
+            ax.plot(_as_numpy(traj[:, i, 0]), _as_numpy(traj[:, i, 1]),
                     color=cm(lb[i]), alpha=0.08)
-        ax.scatter(traj[-1, :, 0].numpy(), traj[-1, :, 1].numpy(),
+        ax.scatter(_as_numpy(traj[-1, :, 0]), _as_numpy(traj[-1, :, 1]),
                    c=lb, cmap="bwr", edgecolor="k", s=40, zorder=100)
         ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
         ax.set_facecolor("#f5f5f5"); ax.grid(True, alpha=0.3)
         ax.set_xticks([]); ax.set_yticks([])
 
     ax0 = axes[0]
-    ax0.scatter(Xc[:, 0].numpy(), Xc[:, 1].numpy(),
-                c=yc.squeeze().numpy(), cmap="bwr", edgecolor="k", s=40)
+    ax0.scatter(_as_numpy(Xc[:, 0]), _as_numpy(Xc[:, 1]),
+                c=_as_numpy(yc.squeeze()), cmap="bwr", edgecolor="k", s=40)
     ax0.set_facecolor("#f5f5f5"); ax0.grid(True, alpha=0.3)
     ax0.set_xlim(-1.5, 1.5); ax0.set_ylim(-1.5, 1.5)
     ax0.set_xticks([]); ax0.set_yticks([])
@@ -211,18 +218,18 @@ def fig3_decision(mc, mt, cfg, out):
         bnds = []
         for rep in reps:
             if rep == 0:
-                b = fwd(model, grid, ts)[-1, :, 0].numpy()
+                b = _as_numpy(fwd(model, grid, ts)[-1, :, 0])
             else:
                 b = np.mean([rbm_fwd(model, grid, ts, sch, rep, p
-                                     )[-1, :, 0].numpy()
+                                     )[-1, :, 0].detach().cpu().tolist()
                              for _ in range(K)], axis=0)
             bnds.append(b)
         fig, axes = plt.subplots(1, len(reps), figsize=(4.8 * len(reps), 4.2))
         for ax, bnd in zip(axes, bnds):
             ax.contourf(xx, yy, -bnd.reshape(xx.shape),
                         levels=80, cmap="RdBu", alpha=0.8, vmin=-1, vmax=1)
-            ax.scatter(Xte[:, 0].numpy(), Xte[:, 1].numpy(),
-                       c=yte.squeeze().numpy(), edgecolor="k", s=35, cmap="jet")
+            ax.scatter(_as_numpy(Xte[:, 0]), _as_numpy(Xte[:, 1]),
+                       c=_as_numpy(yte.squeeze()), edgecolor="k", s=35, cmap="jet")
             ax.set_xticks([]); ax.set_yticks([])
         fig.tight_layout()
         save(fig, os.path.join(out, f"fig3_decision_{label}"))

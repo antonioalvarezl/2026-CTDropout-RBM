@@ -10,7 +10,6 @@ This module contains the core model architectures used in the experiments:
 
 import torch
 import torch.nn as nn
-import numpy as np
 from bisect import bisect_right
 
 
@@ -98,7 +97,7 @@ class RBMConstant(nn.Module):
         self.b1 = trained_func.fc1.bias
         self.W2 = trained_func.fc2.weight
         self.pi = pi
-        self.t_vals = sorted(t_span.cpu().numpy().tolist())
+        self.t_vals = sorted(t_span.detach().cpu().tolist())
         self.list_batches = list_batches
         self.activation = trained_func.activation
 
@@ -132,7 +131,7 @@ class RBMTimeDep(nn.Module):
         super().__init__()
         self.trained_func = trained_func
         self.pi = pi
-        self.t_vals = sorted(t_span.cpu().numpy().tolist())
+        self.t_vals = sorted(t_span.detach().cpu().tolist())
         self.list_batches = list_batches
         self.activation = trained_func.activation
 
@@ -200,7 +199,7 @@ class RBMTrainableODE(nn.Module):
         self.hidden_dim = hidden_dim
         self.pi = pi
         self.list_batches = list_batches
-        self.t_vals = t_span.cpu().numpy().tolist()
+        self.t_vals = t_span.detach().cpu().tolist()
 
     def forward(self, t, y):
         idx = self._get_batch_idx(t)
@@ -293,7 +292,7 @@ class FixedInnerRBM(nn.Module):
         self.hidden_dim = hidden_dim
         self.pi = pi
         self.list_batches = list_batches
-        self.t_vals = t_span.cpu().numpy().tolist()
+        self.t_vals = t_span.detach().cpu().tolist()
 
     def forward(self, t, x):
         idx = self._get_batch_idx(t)
