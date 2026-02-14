@@ -1,9 +1,0 @@
-.DS_Store
-.venv/
-__pycache__/
-*.pyc
-
-rnode.egg-info/
-
-.ipynb_checkpoints/
-outputs/
