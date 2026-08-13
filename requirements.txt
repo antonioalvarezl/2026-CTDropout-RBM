@@ -3,9 +3,11 @@ numpy>=2.0,<3
 scipy>=1.14
 matplotlib>=3.8
 
-# ML / ODE stack
+# ML stack
 torch>=2.4
-torchdiffeq>=0.2.3
+
+# Tests
+pytest>=8,<9
 
 # Make local imports (rnode.*, experiments.*) work from any working directory
 -e .
