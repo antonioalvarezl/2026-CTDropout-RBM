@@ -1,9 +1,27 @@
+# Operating-system and editor files
 .DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python environments and generated files
 .venv/
+venv/
+env/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 
-rnode.egg-info/
-
+# Tests, coverage, and notebooks
+.pytest_cache/
+.coverage
+htmlcov/
 .ipynb_checkpoints/
+
+# Local configuration and generated experiment artifacts
+.env
+.env.*
+!.env.example
 outputs/
