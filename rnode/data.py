@@ -85,11 +85,18 @@ def make_circles_with_targets(
     factor: float = 0.5,
     seed: int | None = 2,
     rng: np.random.Generator | None = None,
+    dtype: torch.dtype = torch.float32,
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Return features, ``{-1,+1}`` labels, and paper targets in two dimensions."""
+    """Return features, ``{-1,+1}`` labels, and paper targets in two dimensions.
+
+    ``dtype`` sets the precision at which the sampled coordinates are stored.
+    It defaults to ``float32`` because existing checkpoints were produced from
+    float32-rounded data and must regenerate bit-identically; pass
+    ``torch.float64`` for a new run that should be double precision end to end.
+    """
     features, labels01 = _make_circles_np(n_samples, factor, noise, _rng(rng, seed))
-    X = torch.tensor(features, dtype=torch.float32)
-    labels = torch.tensor(labels01, dtype=torch.float32).unsqueeze(1) * 2 - 1
+    X = torch.tensor(features, dtype=dtype)
+    labels = torch.tensor(labels01, dtype=dtype).unsqueeze(1) * 2 - 1
     return X, labels, labels_to_targets(labels)
 
 
@@ -159,23 +166,66 @@ def target_density(points: np.ndarray) -> np.ndarray:
     return density
 
 
-def initial_density_quadrature(n_points: int = 200) -> tuple[Tensor, Tensor]:
-    """Return a Cartesian quadrature cloud and normalised probability masses."""
+def initial_density_quadrature(
+    n_points: int = 200,
+    *,
+    rule: str = "cartesian",
+    dtype: torch.dtype = torch.float64,
+) -> tuple[Tensor, Tensor]:
+    r"""Return a quadrature cloud for the compact initial density.
+
+    ``rule='cartesian'`` keeps the historical construction: a uniform grid on
+    ``[-2,0]^2`` restricted to the support, with masses proportional to the
+    density.  Equal cell areas cancel under normalisation, so this is a
+    rectangle rule whose error is dominated by the grid cutting the circular
+    support boundary; refining it does not decrease the error monotonically.
+
+    ``rule='polar'`` is the recommended rule.  It applies Gauss--Legendre
+    nodes in the radius and the periodic trapezoidal rule in the angle to
+
+    ``int f rho_B = int_0^{2pi} int_0^1 f(c+r u(theta)) (2/pi)(1-r^2) r dr dtheta``.
+
+    The masses then integrate the radial weight ``(1-r^2)r`` exactly, so they
+    sum to one to machine precision by construction rather than by
+    renormalisation, and smooth integrands converge at high order.  For
+    ``rule='polar'`` the cloud holds ``n_points`` radial nodes and
+    ``4*n_points`` angular nodes.
+    """
     if n_points < 2:
         raise ValueError("n_points must be at least two")
-    coordinates = np.linspace(-2.0, 0.0, n_points)
-    xx, yy = np.meshgrid(coordinates, coordinates)
-    points = np.stack([xx.ravel(), yy.ravel()], axis=1)
-    values = initial_density(points)
-    mask = values > 0.0
-    points = points[mask]
-    # Equal cell areas cancel when normalising the discrete probability masses.
-    masses = values[mask]
-    total_mass = masses.sum()
-    if not np.isfinite(total_mass) or total_mass <= 0.0:
-        raise RuntimeError("quadrature grid contains no positive mass")
-    masses = masses / total_mass
+    if rule not in {"cartesian", "polar"}:
+        raise ValueError("rule must be 'cartesian' or 'polar'")
+
+    if rule == "cartesian":
+        coordinates = np.linspace(-2.0, 0.0, n_points)
+        xx, yy = np.meshgrid(coordinates, coordinates)
+        points = np.stack([xx.ravel(), yy.ravel()], axis=1)
+        values = initial_density(points)
+        mask = values > 0.0
+        points = points[mask]
+        # Equal cell areas cancel when normalising the discrete masses.
+        masses = values[mask]
+        total_mass = masses.sum()
+        if not np.isfinite(total_mass) or total_mass <= 0.0:
+            raise RuntimeError("quadrature grid contains no positive mass")
+        masses = masses / total_mass
+    else:
+        nodes, weights = np.polynomial.legendre.leggauss(int(n_points))
+        # Map [-1,1] to the radial interval [0,1].
+        radius = 0.5 * (nodes + 1.0)
+        radial_weights = 0.5 * weights
+        n_angles = 4 * int(n_points)
+        angles = 2.0 * np.pi * np.arange(n_angles) / n_angles
+        offsets = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+        points = (
+            INITIAL_CENTER[None, None, :] + radius[:, None, None] * offsets[None, :, :]
+        ).reshape(-1, 2)
+        # mass = rho_B(r) * r * w_r * (2 pi / n_angles), which telescopes to
+        # 4 (1-r^2) r w_r / n_angles and sums to one exactly.
+        radial_masses = 4.0 * (1.0 - radius**2) * radius * radial_weights / n_angles
+        masses = np.repeat(radial_masses, n_angles)
+
     return (
-        torch.tensor(points, dtype=torch.float32),
+        torch.tensor(points, dtype=dtype),
         torch.tensor(masses, dtype=torch.float64),
     )

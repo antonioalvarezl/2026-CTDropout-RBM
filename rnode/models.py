@@ -45,15 +45,21 @@ def _batch_tensors(
     return index, pi
 
 
-def _linear_without_blas(x: Tensor, layer: nn.Linear) -> Tensor:
-    """Evaluate a small linear layer without macOS Accelerate GEMM calls."""
-    result = (x.unsqueeze(-2) * layer.weight).sum(dim=-1)
+def _linear(x: Tensor, layer: nn.Linear) -> Tensor:
+    """Evaluate a linear layer."""
+    result = x @ layer.weight.transpose(-1, -2)
     return result if layer.bias is None else result + layer.bias
 
 
 def _rowwise_projection(x: Tensor, rows: Tensor) -> Tensor:
-    """Return ``x @ rows.T`` using stable elementwise operations."""
-    return (x.unsqueeze(-2) * rows).sum(dim=-1)
+    """Return ``x @ rows.T``.
+
+    An earlier revision expanded this to ``(x[..., None, :] * rows).sum(-1)``
+    to sidestep a suspected BLAS issue.  That form materialises an
+    ``[n, p, d]`` intermediate and measured about 26x slower in isolation
+    while agreeing with the contraction to 2e-15, so the contraction is used.
+    """
+    return x @ rows.transpose(-1, -2)
 
 
 @torch.no_grad()
@@ -90,17 +96,15 @@ class TimeDepWeights(nn.Module):
     def forward(self, t: Tensor | float) -> tuple[Tensor, Tensor | None]:
         reference = next(self.weight_net.parameters())
         t_input = _scalar_time(t, reference)
-        weight_hidden = torch.tanh(
-            _linear_without_blas(t_input, self.weight_net[0])
+        weight_hidden = torch.tanh(_linear(t_input, self.weight_net[0]))
+        weight = _linear(weight_hidden, self.weight_net[2]).reshape(
+            self.output_dim, self.input_dim
         )
-        weight = _linear_without_blas(
-            weight_hidden, self.weight_net[2]
-        ).reshape(self.output_dim, self.input_dim)
         bias = (
             None
             if self.bias_net is None
-            else _linear_without_blas(
-                torch.tanh(_linear_without_blas(t_input, self.bias_net[0])),
+            else _linear(
+                torch.tanh(_linear(t_input, self.bias_net[0])),
                 self.bias_net[2],
             ).reshape(self.output_dim)
         )
