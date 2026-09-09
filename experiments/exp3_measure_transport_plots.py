@@ -332,6 +332,18 @@ def _qualitative_figure(arrays, figure_dir, classification_figure_dir=None):
                                cmap='Oranges', extend='max')
                 ax.tricontour(tri, arrays['density_'+name+'_values'], levels=levels,
                               colors='#1a1a1a', linewidths=.35, alpha=.8)
+            # The mixture the flow was matched towards, as an outline only.
+            # It is the training reference, not the reference against which the
+            # random-batch errors are measured, and the learned terminal density
+            # is visibly flatter than it: the gap is the flow's own error.
+            from rnode.data import target_density
+            gx, gy = np.meshgrid(np.linspace(*limits['xlim'], 320),
+                                 np.linspace(*limits['ylim'], 320))
+            # Every third level only: the narrow third component would
+            # otherwise crowd the outline into a solid disc.
+            ax.contour(gx, gy, target_density(np.stack((gx, gy), axis=-1)),
+                       levels=levels[::3], colors=MUTED, linewidths=.55,
+                       linestyles='dashed', alpha=.85)
         else:
             for name, tint in (('initial', color(0)), (stage, color(1))):
                 ax.scatter(*arrays['transport_'+name].T, c=tint, s=4, alpha=.45, linewidths=0)
