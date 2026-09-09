@@ -11,13 +11,13 @@ import numpy as np
 
 try:
     from experiments._style import (
-        annotate, color, dyadic_ticks, grid, headroom, integer_ticks,
-        reference_line, save, stack_labels, use_paper_style,
+        annotate, color, dyadic_ticks, grid, headroom, integer_ticks, save,
+        stack_labels, use_paper_style,
     )
 except ModuleNotFoundError:
     from _style import (
-        annotate, color, dyadic_ticks, grid, headroom, integer_ticks,
-        reference_line, save, stack_labels, use_paper_style,
+        annotate, color, dyadic_ticks, grid, headroom, integer_ticks, save,
+        stack_labels, use_paper_style,
     )
 import matplotlib.pyplot as plt
 
@@ -106,7 +106,7 @@ def _extract(rows, name, weak):
     return h, value, low, high, resolved
 
 
-def _panel(axis, series, weak, *, guide=False):
+def _panel(axis, series, weak):
     axis.set(xscale='log', yscale='log', xlabel='Switching interval $h$',
              ylabel=(r'$|\mathbb{E}\,\hat\jmath_h-\jmath|$' if weak
                      else r'$\mathbb{E}\,|\hat\jmath_h-\jmath|^2$'))
@@ -117,11 +117,6 @@ def _panel(axis, series, weak, *, guide=False):
     for (label, index), (h, value, low, high, resolved) in series:
         _intervals(axis, h, value, low, high, color(index), resolved)
         labels.append((value[-1], label, color(index)))
-    if guide:
-        # An order-h reference, so the reader can see the strong error falling
-        # faster than it and the weak error tracking it more closely.
-        h, value = series[0][1][0], series[0][1][1]
-        reference_line(axis, h, value[-1], h[-1], 1.0)
     dyadic_ticks(axis, series[0][1][0])
     grid(axis)
     headroom(axis, right=.45, top=.08)
@@ -169,7 +164,7 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
     for axis, weak, label, index in ((axes[0], False, 'strong MSE', 0),
                                      (axes[1], True, 'weak bias', 1)):
         series = [((label, index), _extract(rows, 'uniform_fixed_r8', weak))]
-        labels = _panel(axis, series, weak, guide=True)
+        labels = _panel(axis, series, weak)
         annotate(axis, series[0][1][0][-1], labels[0][0], label, color=color(index))
     _ensemble_panel(axes[2], ensemble)
     outputs += save(fig, figure_dir, 'objective_consistency')
