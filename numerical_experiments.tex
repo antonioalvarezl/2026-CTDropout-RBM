@@ -1,0 +1,242 @@
+% Replacement for the supplied Numerical experiments and Implementation details.
+% Integration in the complete manuscript:
+% 1. Remove the old figure environment containing Figures/rbm_node3.pdf in
+%    subsection Random batch methods; its label fig:rbm_node is reused below.
+%    The old PDF/source is not available here; its caption describes a different
+%    schematic, so its panels have not been reused as numerical evidence.
+% 2. Replace the old numerical/implementation sections by this file.
+% 3. Copy the accompanying Figures/numerics directory into the paper project.
+% Every panel is a separate PDF, without embedded titles or legends.
+% The includegraphics groups below can be rearranged without rerendering.
+% The old objective/scheme-comparison labels and both transport labels are
+% retained as aliases of the merged figures, so external references still work.
+% Sources: exp1/run-20260908T003530Z; exp2/run-20260908T114737Z;
+% exp3/run-20260908T171321Z; exp4/run-20260908T144745Z.
+% The exp3 data and state tensors equal those in run-20260908T111404Z.
+% Outstanding checks: independent Eulerian mass/domain validation on the learned
+% flow, coupling quadrature refinement, and wall-clock benchmarking if claimed.
+% All local labels and image paths checked against the integrated manuscript.
+% Section compiled with a minimal fallback preamble (no overfull boxes); the
+% original preamble still needs locally absent libertine and cleveref packages.
+% No new training or statistical sweep was performed for this revision.
+
+\section{Numerical experiments}\label{sec:numerical_results}
+
+The experiments complement the analysis through three blocks: trajectory approximation and sampling design, objective consistency at a fixed control, and transport of measures. A final work--accuracy comparison illustrates the limitations of a component-count proxy. The theoretical estimates are upper bounds; the observations below neither establish asymptotic equivalence nor prescribe an ordering of sampling schemes. Implementation and numerical checks are collected in \cref{sec:numerical_details}.
+
+\subsection{Experimental setup}\label{subsec:num_setup}
+
+The classification experiments use \eqref{eq:node-p} with $T=1$, $d=2$, $p=24$, and $\sigma=\operatorname{GELU}$. The rows of $A_t\in\R^{p\times d}$ and columns of $W_t\in\R^{d\times p}$ collect $\mathbf a_{i,t}$ and $\mathbf w_{i,t}$. The control is parameterized by
+\[
+A_t=H_A(t;\eta_A),\qquad b_t=H_b(t;\eta_b),\qquad W_t=H_W(t;\eta_W),
+\]
+where each map has one hidden layer of width $16$ with $\tanh$ activation. Regularization in \eqref{eq:objective_full} acts on the generated control $\vartheta^\eta$, rather than the representation parameters $\eta$.
+
+We use independent training, calibration, and test splits from \texttt{make\_circles}. For labels $c_m\in\{-1,1\}$, the targets are $\bfy_m=(-1,0)$ when $c_m=-1$ and $\bfy_m=(0,1)$ otherwise, with $g_m(\bfx)=\ell_m(\bfx)=\|\bfx-\bfy_m\|^2$. The full model is trained once and frozen. Trajectories, sampling design, and work use the test split; objective consistency uses the calibration split, with identical data in the full and randomized objectives. We do not examine convergence of a training algorithm or of minimizers.
+
+\Cref{fig:rbm_node} introduces the two frozen flows used below through one predeclared realization of each randomized model. It shows the common initial points and their terminal images, together with the initial and learned full-flow transport densities; the quantitative comparisons that follow average over independent schedules.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.32\linewidth]{Figures/numerics/classification_initial.pdf}\hfill
+\includegraphics[width=.32\linewidth]{Figures/numerics/classification_full.pdf}\hfill
+\includegraphics[width=.32\linewidth]{Figures/numerics/classification_random.pdf}\\[1ex]
+\includegraphics[width=.32\linewidth]{Figures/numerics/transport_densities.pdf}\hfill
+\includegraphics[width=.32\linewidth]{Figures/numerics/transport_full_samples.pdf}\hfill
+\includegraphics[width=.32\linewidth]{Figures/numerics/transport_random_samples.pdf}
+\caption{Illustrative frozen flows, not a statistical comparison. Top, left to right: initial classification inputs, full-model images at $T=1$, and random-batch images. These $768$ points pool the saved test, training, and calibration splits solely for visualization; they are not a larger independent test sample. Blue and orange identify classes $-1$ and $+1$; outlined stars mark the fixed targets $(-1,0)$ and $(0,1)$. Bottom left: initial density and the learned full-flow density at $T=1$, shown together on the same linear Oranges scale from $0$ to $2/\pi$; density values come from characteristics on a mapped mesh, without KDE or renormalization. Bottom middle/right: the same $1024$ independent initial samples (blue) together with their full/random terminal images (orange). These are equal-weight samples, not quadrature nodes. Each row uses common axis limits and aspect ratio. The previous realization is retained: uniform sampling, $h=2^{-8}$, $r=8$ and schedule seed $20260908$ for classification, $r=16$ and seed $20260909$ for transport, and transport sampling seed $20260910$. One schedule is shared by every point in each flow. No realization was selected by appearance.}
+\label{fig:rbm_node}
+\end{figure}
+
+\subsection{Trajectory convergence and sampling design}\label{subsec:num_trajectory}
+
+For test inputs $\bfx_0^m$ and independent schedules $\omega_k$, we compute
+\begin{equation}\label{eq:empirical_trajectory_error}
+\hat{\mathcal E}_{\mathrm{tr}}(h)
+\coloneqq\frac{1}{n_{\mathrm{test}}}\sum_{m=1}^{n_{\mathrm{test}}}
+\max_\ell\frac{1}{N_{\mathrm{sch}}}\sum_{k=1}^{N_{\mathrm{sch}}}
+\|\bfx^m_{t_\ell}-\hat\bfx^{m,k}_{t_\ell}\|^2.
+\end{equation}
+The maximum is outside the schedule average, as in \cref{th:convergence}, on a common observation grid for every $h$. We compare uniform fixed-size sampling with $r=8$, Bernoulli sampling with $q_B=1/3$, and a contiguous partition into three blocks of size eight. All have $\pi_i=1/3$ and expected batch size eight. \Cref{fig:num_trajectory_convergence} shows the error and its rescaling by $h$.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.49\linewidth]{Figures/numerics/trajectory_error.pdf}\hfill
+\includegraphics[width=.49\linewidth]{Figures/numerics/trajectory_rescaled.pdf}
+\caption{Trajectory error \eqref{eq:empirical_trajectory_error} (left) and $\hat{\mathcal E}_{\mathrm{tr}}(h)/h$ on the predeclared fine range $h\le2^{-8}$ (right). Blue, orange, and green identify uniform, contiguous, and Bernoulli sampling, respectively. Each scheme and switching scale uses $300$ schedules. Filled markers identify this fine range; open markers are coarser diagnostic points. Bands are approximate $95\%$ grouped jackknife intervals over schedules. No fitted or theoretical guide curves are drawn.}
+\label{fig:num_trajectory_convergence}
+\end{figure}
+
+To examine the role of sampling variance, define
+\begin{equation}\label{eq:num_integrated_lambda}
+\overline\Lambda_D\coloneqq\frac{1}{n_{\mathrm{test}}}
+\sum_{m=1}^{n_{\mathrm{test}}}\|\Lambda^D(\bfx_0^m,\vartheta)\|_{L^1(0,T)}.
+\end{equation}
+\Cref{tab:variance_validation} compares the formulas in \cref{tab:as} with Monte Carlo evaluations along the same full trajectories. \Cref{fig:partition_variance} then compares variance and rescaled error for all $100$ randomly generated balanced partitions, without selecting partitions by their measured error or variance.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Sampling scheme & Analytical $\overline\Lambda_D$ & Monte Carlo & Discrepancy (\%)\\
+\midrule
+Uniform fixed-size ($r=8$) &110.69&109.70&0.89\\
+Bernoulli ($q_B=1/3$) &106.85&108.77&1.80\\
+Contiguous partition ($r=8$) &208.27&209.46&0.57\\
+\bottomrule
+\end{tabular}
+\caption{Integrated field variance, with $5000$ Monte Carlo draws per scheme. Inclusion probabilities and expected batch sizes are matched. Discrepancy is the absolute difference relative to the analytical value.}
+\label{tab:variance_validation}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.78\linewidth]{Figures/numerics/partition_variance_vs_error.pdf}
+\caption{Integrated variance and rescaled trajectory error for all $100$ random balanced partitions, with $30$ schedules per partition at $h_{\mathrm{probe}}=2^{-8}$. Blue circles denote random partitions; the orange diamond is the contiguous baseline. Block-selection sequences are shared across partitions. Pearson $r=0.95$ and Spearman $\rho=0.96$ are descriptive correlations of these noisy estimates, not independent replications of an error law. Individual schedule intervals cannot be recovered for the full historical partition collection and are not shown.}
+\label{fig:partition_variance}
+\end{figure}
+
+Over the fine range, the rescaled trajectory error is comparatively stable; uniform and Bernoulli errors are similar and the contiguous partition gives larger errors. The variance formulas and Monte Carlo evaluations differ by less than $2\%$, and the partition scatter exhibits a strong empirical association between variance and error. This is consistent with variance entering the upper bound: at matched inclusion probabilities, the stability factor in \eqref{eq:S_factorized} is common. The bound itself implies neither the observed ordering nor proportionality of actual errors to variance.
+
+\subsection{Objective consistency at a fixed control}\label{subsec:num_objective}
+
+We normalize by the calibration sample size, writing $j=J/n_d$, $\hat j_h=\hat J_h/n_d$, and $\overline j_h=\overline J_h/n_d$. This changes only constants in \cref{thm:cost_consistency}. The control-energy term is evaluated identically and cancels in the differences. We estimate
+\begin{align}
+\hat{\mathcal E}_{J,\mathrm{str}}(h)
+&\coloneqq\frac{1}{N_{\mathrm{sch}}}\sum_{k=1}^{N_{\mathrm{sch}}}|\hat j_h(\vartheta,\omega_k)-j(\vartheta)|^2,
+\label{eq:empirical_strong_error}\\
+\hat b_h&\coloneqq\frac{1}{N_{\mathrm{sch}}}\sum_{k=1}^{N_{\mathrm{sch}}}\hat j_h(\vartheta,\omega_k)-j(\vartheta),
+\qquad \hat{\mathcal E}_{J,\mathrm{wk}}(h)\coloneqq|\hat b_h|.
+\label{eq:empirical_weak_error}
+\end{align}
+Weak-bias uncertainty is computed for the signed $\hat b_h$ before taking absolute values. The upper panels of \cref{fig:objective_consistency} compare the three sampling laws at equal sample sizes. The lower panel uses the larger uniform pool to examine averaging over $M$ schedules, for which
+\[
+\E|\hat j_{h,M}-j|^2
+=\frac{\operatorname{Var}(\hat j_h)}{M}+(\overline j_h-j)^2
+\le C\left(\frac{h}{M}+h^2\right).
+\]
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.49\linewidth]{Figures/numerics/objective_strong.pdf}\hfill
+\includegraphics[width=.49\linewidth]{Figures/numerics/objective_weak.pdf}\\[1ex]
+\includegraphics[width=.62\linewidth]{Figures/numerics/objective_ensemble.pdf}
+\caption{Objective consistency at a fixed control. Top: strong mean-square error and absolute weak-bias estimate for $256$ schedules per scheme and $h$, with $\pi_i=1/3$ and expected batch size eight. Blue, orange, and green identify uniform, contiguous, and Bernoulli sampling. The uniform points reuse exactly the first $256$ of the $768$ final uniform schedules, verified against the saved individual objective values. Hollow weak-bias markers indicate signed $95\%$ intervals containing zero; these absolute means are not resolved bias magnitudes. Bars are approximate $95\%$ Monte Carlo intervals; downward triangles indicate intervals reaching zero, which is outside the logarithmic axis. Bottom: uniform ensembles from the separate, full $768$-schedule pool per $h$, grouped into disjoint sets of size $M$ ($768,192,48,12$ groups). In the ensemble panel, blue, orange, green, red, purple, and brown correspond to $h=2^{-6},\ldots,2^{-11}$. Dotted curves are $\hat s_h^2/M+(\hat b_h^2-\hat s_h^2/768)_+$. Each $M$ reuses the pool with its own seeded permutation, so estimates across $M$ and between upper and lower panels are dependent. No fitted slopes are reported.}
+\label{fig:objective_consistency}
+\label{fig:scheme_comparison}
+\end{figure}
+
+At fine scales, uniform and Bernoulli errors are similar and contiguous errors are larger; this is an observed sampling effect, not an ordering asserted by the theorem. At $h=2^{-6}$, the $256$-schedule signed intervals for uniform and contiguous sampling contain zero, and strong-error uncertainty is large; the coarse points do not support a resolved bias magnitude or a reliable rate fit. The uniform ensemble curves illustrate variance reduction and a bias contribution that persists as $M$ increases, but agreement with the dotted curves is a same-pool diagnostic rather than independent validation. The original $768$-schedule estimates in \cref{tab:objective_relative_bias} show that even at the finest scale the bias is about $29\%$ of the full objective, so the perturbation is not yet negligible.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule
+$h$ &$2^{-6}$&$2^{-7}$&$2^{-8}$&$2^{-9}$&$2^{-10}$&$2^{-11}$\\
+\midrule
+$|\hat b_h|/j$ &29.5&5.56&2.51&1.15&0.55&0.29\\
+\bottomrule
+\end{tabular}
+\caption{Relative weak bias of uniform sampling, using all $768$ final schedules per scale and $j=0.1413732553$. These are ratios, not percentages, and are distinct from the $256$-schedule comparison in the upper panels of \cref{fig:objective_consistency}.}
+\label{tab:objective_relative_bias}
+\end{table}
+
+\subsection{Transport of measures}\label{subsec:num_transport}
+
+The second frozen neural ODE has $T=1$, $d=2$, $p=48$, $\sigma=\tanh$, and controls $A_t=A_0$, $W_t=W_0$, $b_t=b_0+b_1t$. Its full field is trained by flow matching from
+\[
+\rho_{\mathrm B}(\bfx)=\frac{2}{\pi}\bigl(1-\|\bfx-(-1,-1)\|^2\bigr)_+.
+\]
+Randomization uses uniform fixed-size sampling with $r=16$, hence $\pi_i=1/3$. Quantitative integrals use polar quadrature $\sum_m\zeta_m\delta_{\bfx_0^m}$ with the same points and nonnegative unit-sum weights for both flows. This weighted quadrature is distinct from the independent samples shown in \cref{fig:rbm_node}.
+
+We measure the squared synchronous-coupling error and the mean of its square root:
+\begin{align}
+\hat{\mathcal E}_{\mathrm{sq}}(h)
+&\coloneqq\frac{1}{N_{\mathrm{sch}}}\sum_{k=1}^{N_{\mathrm{sch}}}
+\sum_m\zeta_m\|\Phi_T(\bfx_0^m)-\hat\Phi_T^{\omega_k}(\bfx_0^m)\|^2,
+\label{eq:transport_sq_error}\\
+\hat{\mathcal E}_{\mathrm{coup}}(h)
+&\coloneqq\frac{1}{N_{\mathrm{sch}}}\sum_{k=1}^{N_{\mathrm{sch}}}
+\left(\sum_m\zeta_m\|\Phi_T(\bfx_0^m)-\hat\Phi_T^{\omega_k}(\bfx_0^m)\|^2\right)^{1/2}.
+\label{eq:transport_coup_error}
+\end{align}
+For each schedule, the square root bounds $W_2$ between the discrete pushforward measures. Averaging these bounds is not computing $W_2$, nor taking the square root after the schedule average. The corresponding bounds in \cref{th:convergence,rem:W2} have orders $h$ and $\sqrt h$.
+
+Densities are evaluated by backward characteristics and the divergence integral in \eqref{eq:Liouville}, using the original randomized schedule in reverse. We compute
+\begin{align}
+\hat{\mathcal E}_{\rho,\mathrm{pw}}(h;\bfx^{(q)})
+&\coloneqq\frac{1}{N_{\mathrm{sch}}}\sum_k
+|\rho_T(\bfx^{(q)})-\hat\rho_T^{\omega_k}(\bfx^{(q)})|^2,
+\label{eq:transport_pointwise_error}\\
+\hat{\mathcal E}_{\rho,L^1}(h)
+&\coloneqq\frac{1}{N_{\mathrm{sch}}}\sum_k
+\|\rho_T-\hat\rho_T^{\omega_k}\|_{L^1(\R^2)}.
+\label{eq:transport_L1_error}
+\end{align}
+The Eulerian points $\bfx^{(q)}$ are fixed full-flow images, held constant across $h$ and schedules. Equality of the exact unit masses gives
+\begin{equation}\label{eq:l1_change_of_variables}
+\|\rho_T-\hat\rho_T\|_{L^1(\R^d)}
+=2\int_{\R^d}(\rho_T-\hat\rho_T)_+\,\diff\bfx
+=2\E_{\mu_{\mathrm B}}\left[
+\left(1-\frac{\hat\rho_T(\Phi_T(\bfy))}{\rho_T(\Phi_T(\bfy))}\right)_+
+\right].
+\end{equation}
+The ratio is defined $\mu_{\mathrm B}$-almost everywhere. This bounded-integrand identity accounts for mass outside the full-flow support without renormalizing densities. \Cref{fig:transport_summary} collects the four measurements.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.49\linewidth]{Figures/numerics/transport_squared_coupling.pdf}\hfill
+\includegraphics[width=.49\linewidth]{Figures/numerics/transport_w2_bound.pdf}\\[1ex]
+\includegraphics[width=.49\linewidth]{Figures/numerics/transport_pointwise_density.pdf}\hfill
+\includegraphics[width=.49\linewidth]{Figures/numerics/transport_l1.pdf}
+\caption{Transport at the frozen control. Top: squared coupling \eqref{eq:transport_sq_error} and mean coupling upper bound \eqref{eq:transport_coup_error}, using $40$ schedules and $1024$ quadrature points; the latter is not $W_2$ itself. Bottom left: pointwise density MSE from $40$ schedules at $\bfx^{(1)},\ldots,\bfx^{(5)}$, the full-flow images of $(-1,-1)$, $(-0.6,-1)$, $(-1,-0.4)$, $(-1.8,-1)$, $(-1,-1.9)$. The five pointwise curves use blue, orange, green, red, and purple in this order. Bottom right: global $L^1$ error from $12$ schedules and $2704$ quadrature points using \eqref{eq:l1_change_of_variables}. Bands are approximate $95\%$ schedule intervals. Spatial refinement on three paired schedules per $h$ gives maximum production-to-finer changes ranging from $1.0\times10^{-4}$ to $7.7\times10^{-4}$; these depend on $h$ and are diagnostics, not a common error floor or certified bound. No rate fits or guide lines are drawn.}
+\label{fig:transport_summary}
+\label{fig:transport_coupling}
+\label{fig:transport_density}
+\end{figure}
+
+Coupling and global $L^1$ errors decrease across the tested scales, whereas pointwise density errors show heterogeneous trends with overlapping uncertainty bands; a common pointwise rate is not resolved. At the finest scale, the mean $L^1$ error is $0.264$ with an approximate $95\%$ interval $[0.208,0.320]$, well above the measured refinement discrepancies but still appreciable. These observations complement the upper bounds of \cref{thm:transport,cor:L1bound}; they do not establish asymptotic rates or certify numerical mass conservation.
+
+\subsection{Complementary work--accuracy comparison}\label{subsec:num_work_accuracy}
+
+As a separate illustration of \cref{sec:cost_accuracy}, we compare explicit Euler discretizations of the frozen classification model. Both methods use terminal RMS error at the common time $T$, relative to an accurate full RK4 reference; randomized RMS averages squared errors over both test inputs and schedules before taking the square root. Full-model steps are chosen independently. \Cref{fig:work_accuracy} reports the idealized per-input, per-schedule component count $pT/\Delta t$ or $rT/\Delta t$.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.78\linewidth]{Figures/numerics/work_accuracy.pdf}
+\caption{Terminal RMS error against the component-evaluation work proxy. Both models use explicit Euler; random batching uses $r\in\{4,8,12\}$, $\Delta t=h/4$, and $80$ schedules per configuration. Full-model steps are independent of $h$. Gray identifies the full model, while blue, orange, and green identify $r=4,8,12$. The proxy assumes evaluation of active components only; it excludes control generation, sampling, and other overhead and is not measured wall-clock time.}
+\label{fig:work_accuracy}
+\end{figure}
+
+Every tested randomized point is dominated by a full-model point with no greater proxy work and no larger error. For example, the finest $r=12$ configuration has RMS error about $0.32$ at $24576$ proxy evaluations, whereas the full model attains at least that accuracy at $1536$. Thus this model and tested range show no proxy-work advantage; they do not locate the crossover in \cref{prop:relativecost}. Coarse Euler errors and randomization errors are not separated by this plot, and the implementation generates the full control, so no wall-clock speedup is inferred.
+
+\section{Implementation details}\label{sec:numerical_details}
+
+Integrations use double precision on a CPU; saved classification inputs retain their original data-generation rounding. Root seed $2026$ determines separate seeds for data, initialization, schedules, partitions, and uncertainty estimates. Run records contain configurations, seeds, software versions, and the Git commit. The switching interval $h$ is distinct from the RK4 step $\Delta t=h/8$. One schedule is shared by all inputs in a realization; its active mask stays fixed throughout each interval and all corresponding RK4 stages, including the last stage at a boundary.
+
+\paragraph{Classification control.}
+Training, calibration, and test splits contain $384$, $128$, and $256$ samples, with \texttt{make\_circles} noise $0.05$ and inner-radius factor $0.5$. Training uses $800$ Adam steps at learning rate $2\times10^{-3}$, $\alpha=10^{-3}$, $\beta=10^{-1}$, and RK4 step $2^{-6}$. Representation parameters are projected onto $[-5,5]$ after each update. Running costs use the trapezoidal rule. Continuity on this bounded parameter set and $[0,T]$ gives a compact set containing the generated controls.
+
+\paragraph{Trajectory and sampling experiments.}
+We use $h\in\{2^{-6},\ldots,2^{-11}\}$ and a common grid of $513$ observation instants, of spacing $2^{-9}$. The jackknife deletes $30$ groups of $10$ schedules. At the finest $h$, paired step halving on $20$ schedules changes the trajectory statistic by a relative amount below $1.7\times10^{-12}$. Full references use $2^{-16}$; comparison with $2^{-15}$ gives a data-averaged maximum squared discrepancy $5.3\times10^{-28}$. Integrated variances use time spacing $2^{-8}$. Balanced partitions come from uniform permutations, excluding the contiguous baseline, and all $100$ are probed using common block-selection sequences. No partition selection by measured variance is made.
+
+\paragraph{Objective experiment.}
+The six switching scales match the trajectory experiment. The final uniform pool has $768$ schedules per scale, independent of the $256$-schedule sizing pilot. The comparison uses its first $256$ final values and $256$ separately generated schedules for each alternative law. The saved comparison means and SEs are used directly; uniform summaries have been checked against the individual samples. Alternative-law individual objective values were not retained, so their summary-based intervals can be reconstructed but their tail behavior cannot be reassessed without additional evaluations. The merged figure imports no slopes from either historical fit table.
+
+Intervals use $1.96$ standard errors and are approximate, particularly for coarse-scale heavy-tailed samples and ensembles with only $12$ groups. For a signed bias interval $[a,b]$, the absolute-bias interval is $[0,\max(|a|,|b|)]$ if $a\le0\le b$, and $[\min(|a|,|b|),\max(|a|,|b|)]$ otherwise. An unresolved absolute sample mean is not interpreted as a measured bias magnitude. The full reference uses $2^{-16}$; comparison with $2^{-15}$ changes $j$ by $1.2\times10^{-10}$. At the finest $h$, paired step halving on $20$ uniform schedules changes $\hat j_h$ by RMS $6.1\times10^{-9}$, about $10^{-7}$ of the randomization RMS. These checks do not constitute separate refinement tests for the two alternative laws. The reference control-energy term is common to all evaluations.
+
+\paragraph{Transport experiment.}
+Flow matching uses $12000$ Adam steps, initial learning rate $10^{-3}$ with a plateau schedule, and minibatches of $1024$. The selected checkpoint minimizes validation MSE on $4096$ independent points. The training target is an equally weighted Gaussian mixture with means $(6,0)$, $(4.5,3)$, $(6,2)$ and covariances
+\[
+\Sigma_1=\Sigma_2=\begin{bmatrix}0.2&0.05\\0.05&0.2\end{bmatrix},
+\qquad\Sigma_3=0.05I_2.
+\]
+All reported errors compare random and full flows from the same initial density, not either flow with this target.
+
+Polar quadrature uses $n$ Gauss--Legendre radial nodes and $4n$ equispaced angles, integrating the initial polynomial radial mass weight exactly without renormalization. Production uses $n=16$ for coupling and $n=26$ for $L^1$. The sweep is $h\in\{2^{-4},\ldots,2^{-9}\}$; full references use $2^{-12}$ with comparison at $2^{-11}$. Spatial density refinement uses $n\in\{13,26,37\}$ on the first three schedules at every $h$, comparing each paired realization before taking absolute values. Paired halving of the random and full characteristic steps changes $L^1$ by at most $5.6\times10^{-8}$ on these checks. The ratio in \eqref{eq:l1_change_of_variables} is computed through log densities using $-\operatorname{expm1}(\log\hat\rho-\log\rho)$ only for a negative log ratio; a zero random density contributes one to the deficit. These checks test density quadrature and characteristic integration. Independent Eulerian mass/domain checks on the learned flow and spatial refinement of the coupling integral remain outstanding; no density is renormalized to hide a mass discrepancy.
+
+\paragraph{Illustrative realization.}
+\Cref{fig:rbm_node} reuses these two checkpoints, their production reference steps, and $\Delta t=h/8$ for random trajectories. The initial transport sample is drawn by the exact inverse radial CDF of $\rho_{\mathrm B}$. Configuration and hashes are written before integration; actual schedules and plotted coordinates are saved in \texttt{qualitative\_samples.npz}. The classification cloud is enlarged by pooling all original splits, keeping the previous test-point images and integrating only the additional inputs. Initial and terminal transport densities are evaluated on a connected polar mesh with $48$ radial rings and $192$ angles, including the support boundary; the final values include the divergence integral along the full characteristics. A common color scale is used for both densities. Axis limits encompass all the displayed samples, density meshes, and classification targets, and are common within each row. This framing changes neither the schedule nor the point sample. The checks recorded with the illustration include paired step halving on the additional classification inputs and the unnormalized masses of the displayed density meshes at two nested resolutions. The latter checks rendering sensitivity; it does not replace an independent Eulerian mass/domain check.
+
+\paragraph{Work experiment.}
+We use $h\in\{2^{-4},\ldots,2^{-9}\}$ and full-model Euler steps $2^{-3},\ldots,2^{-10}$. The RK4 reference uses $2^{-16}$; comparison with $2^{-15}$ gives terminal RMS discrepancy $2.3\times10^{-14}$. The observable is terminal accuracy, not a maximum over differing integration grids. Control-generation work and elapsed-time benchmarks are outside this proxy comparison.

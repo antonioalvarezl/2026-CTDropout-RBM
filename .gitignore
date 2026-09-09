@@ -25,3 +25,4 @@ htmlcov/
 .env.*
 !.env.example
 outputs/
+results/

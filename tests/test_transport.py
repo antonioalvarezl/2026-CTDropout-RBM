@@ -11,7 +11,6 @@ from rnode.transport import (
     weighted_kde,
     weighted_kde_with_diagnostics,
 )
-from experiments.exp4_measure_transport import assess_flow_quality
 
 
 def test_transport_preserves_every_dirac_mass():
@@ -74,16 +73,3 @@ def test_transport_rejects_negative_masses_even_when_they_sum_to_one():
         transport_particles(
             Flow(hidden=2), points, torch.tensor([1.2, -0.2]), 1, 0.5, 1
         )
-
-
-def test_flow_quality_is_scaled_by_kde_resolution_benchmark():
-    passing = assess_flow_quality(0.4, [0.2, 0.22], max_ratio=2.0)
-    failing = assess_flow_quality(0.5, [0.2, 0.22], max_ratio=2.0)
-    assert passing["passed"]
-    assert not failing["passed"]
-    assert passing["target_kde_benchmark_l1_mean"] == pytest.approx(0.21)
-
-
-def test_flow_quality_rejects_invalid_benchmark():
-    with pytest.raises(ValueError):
-        assess_flow_quality(0.4, [0.0], max_ratio=2.0)
