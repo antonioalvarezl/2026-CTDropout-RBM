@@ -21,6 +21,12 @@ except ModuleNotFoundError:
     )
 import matplotlib.pyplot as plt
 
+# At h=2^-6 the 95% half-width exceeds the strong estimate and the signed weak
+# interval contains zero, so neither point is resolved. Plotting them forces the
+# axes over four extra decades and marks both at the axis floor, which tells the
+# reader nothing the caption does not. The saved tables keep every scale.
+OMITTED_H = 2.0**-6
+
 SCHEMES = (("uniform_fixed_r8", r"Uniform, $r=8$", 0),
            ("fixed_contiguous_r8", r"Contiguous, $r=8$", 1),
            ("bernoulli_q1_3", r"Bernoulli, $q=1/3$", 2))
@@ -100,12 +106,6 @@ def _extract(rows, name, weak):
     return h, value, low, high, resolved
 
 
-def _fit_slope(h, value):
-    """Least-squares log-log slope, for an unlabelled trend guide only."""
-    finite = np.isfinite(value) & (value > 0)
-    return float(np.polyfit(np.log(h[finite]), np.log(value[finite]), 1)[0])
-
-
 def _panel(axis, series, weak, *, guide=False):
     axis.set(xscale='log', yscale='log', xlabel='Switching interval $h$',
              ylabel=(r'$|\mathbb{E}\,\hat\jmath_h-\jmath|$' if weak
@@ -118,8 +118,10 @@ def _panel(axis, series, weak, *, guide=False):
         _intervals(axis, h, value, low, high, color(index), resolved)
         labels.append((value[-1], label, color(index)))
     if guide:
+        # An order-h reference, so the reader can see the strong error falling
+        # faster than it and the weak error tracking it more closely.
         h, value = series[0][1][0], series[0][1][1]
-        reference_line(axis, h, value[-1], h[-1], _fit_slope(h, value))
+        reference_line(axis, h, value[-1], h[-1], 1.0)
     dyadic_ticks(axis, series[0][1][0])
     grid(axis)
     headroom(axis, right=.45, top=.08)
@@ -157,6 +159,10 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
         rows = [dict(r, scheme='uniform_fixed_r8') for r in _rows(root / 'data/objective_consistency.csv')]
         # Historical single-scheme runs remain plottable without inventing a comparison.
 
+    rows = [r for r in rows if float(r['h']) < OMITTED_H]
+    ensemble = [r for r in _rows(root / 'data/ensemble_averaging.csv')
+                if float(r['h']) < OMITTED_H]
+
     outputs = []
     # The uniform sweep on its own, with the separate ensemble pool beside it.
     fig, axes = plt.subplots(1, 3, figsize=(10.4, 2.9))
@@ -165,7 +171,7 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
         series = [((label, index), _extract(rows, 'uniform_fixed_r8', weak))]
         labels = _panel(axis, series, weak, guide=True)
         annotate(axis, series[0][1][0][-1], labels[0][0], label, color=color(index))
-    _ensemble_panel(axes[2], _rows(root / 'data/ensemble_averaging.csv'))
+    _ensemble_panel(axes[2], ensemble)
     outputs += save(fig, figure_dir, 'objective_consistency')
 
     # The matched three-scheme comparison at the same control.
