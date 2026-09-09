@@ -666,11 +666,12 @@ def run_qualitative(args):
     transport_run = ArtifactPaths.latest_run(args.output_dir)
     classification_run = ArtifactPaths.latest_run(args.classification_dir)
     figures = transport_run / "figures"
-    # The trajectory figures show the classifier, so they belong beside it.
+    # The classification panels show the classifier, so they belong beside it.
     classification_figures = classification_run / "figures"
     report_progress("exp3-qual", f"classifier {classification_run.name}, flow {transport_run.name}")
     outputs = list(generate_qualitative(
-        classification_run, transport_run, figures, overwrite=True,
+        classification_run, transport_run, figures,
+        classification_figure_dir=classification_figures, overwrite=True,
     ))
     report_progress("exp3-qual", "illustration panels done")
     outputs += generate_classification_trajectories(

@@ -1,7 +1,8 @@
 """Plots for trajectory convergence and fixed-partition sampling design.
 
-Figures carry series identification and nothing else.  Marker conventions,
-reference slopes and sample sizes belong in the LaTeX caption.
+Series are labelled directly at the end of each curve, in the curve's own
+colour, so the reader never has to travel to a legend and back.  Marker
+conventions, reference slopes and sample sizes belong in the LaTeX caption.
 """
 
 from __future__ import annotations
@@ -13,19 +14,21 @@ import numpy as np
 
 try:
     from experiments._style import (
-        color, dyadic_ticks, grid, save, use_paper_style,
+        color, dyadic_ticks, grid, headroom, reference_line, save,
+        stack_labels, use_paper_style,
     )
 except ModuleNotFoundError:
     from _style import (
-        color, dyadic_ticks, grid, save, use_paper_style,
+        color, dyadic_ticks, grid, headroom, reference_line, save,
+        stack_labels, use_paper_style,
     )
 
 import matplotlib.pyplot as plt
 
 LABELS = {
-    "uniform_fixed_r8": "Uniform",
-    "fixed_contiguous_r8": "Contiguous",
-    "bernoulli_q1_3": "Bernoulli",
+    "uniform_fixed_r8": r"Uniform, $r=8$",
+    "fixed_contiguous_r8": r"Contiguous, $r=8$",
+    "bernoulli_q1_3": r"Bernoulli, $q=1/3$",
 }
 ORDER = tuple(LABELS)
 
@@ -56,37 +59,47 @@ def _series(rows, name):
 
 
 def _trajectory_plot(rows, figure_dir: Path) -> list[Path]:
-    figures_axes = [plt.subplots(figsize=(3.5, 2.9)) for _ in range(2)]
-    axes = [pair[1] for pair in figures_axes]
+    """Error and its rescaling by ``h``, on one axes pair."""
+    fig, axes = plt.subplots(1, 2, figsize=(6.9, 2.9))
+    labels = ([], [])
+    reference = None
     for index, name in enumerate(ORDER):
         s, tint = _series(rows, name), color(index)
         if s is None:
             continue
+        h, fine = s["h"], s["fit"]
         for panel, axis in enumerate(axes):
-            keep = s["fit"] if panel else np.ones(len(s["h"]), dtype=bool)
-            h = s["h"][keep]
             scale = h if panel else np.ones(len(h))
-            value, low, high = [s[k][keep] / scale for k in ("error", "lower", "upper")]
+            value, low, high = [s[k] / scale for k in ("error", "lower", "upper")]
             axis.fill_between(h, low, high, color=tint, alpha=.13, lw=0)
-            axis.plot(h, value, color=tint, label=LABELS[name])
-            fine = s["fit"][keep]
+            axis.plot(h, value, color=tint)
+            # Filled markers are the predeclared fine range, open ones the
+            # coarser diagnostic scales.
             axis.plot(h[fine], value[fine], 'o', color=tint, markeredgecolor='white')
             axis.plot(h[~fine], value[~fine], 'o', mfc='white', mec=tint)
-            axis.set_xscale('log')
-            dyadic_ticks(axis, h)
+            labels[panel].append((value[-1], LABELS[name], tint))
+        if name == "uniform_fixed_r8":
+            reference = (h[fine], (s["error"] / h)[fine].mean())
+    if reference is not None:
+        # One unlabelled O(h) guide, anchored on the fine range of the
+        # uniform sweep. The slope belongs in the caption.
+        h_fine, level = reference
+        reference_line(axes[0], h_fine, level * h_fine[-1], h_fine[-1], 1.0)
     axes[0].set(yscale='log', ylabel=r'$\widehat{\mathcal{E}}_{\rm tr}(h)$')
     axes[1].set_ylabel(r'$\widehat{\mathcal{E}}_{\rm tr}(h)/h$')
-    for axis in axes:
+    for panel, axis in enumerate(axes):
+        axis.set_xscale('log')
         axis.set_xlabel('Switching interval $h$')
-        grid(axis, which='major')
-    outputs = []
-    for (fig, _), name in zip(figures_axes, ('trajectory_error', 'trajectory_rescaled')):
-        outputs += save(fig, figure_dir, name)
-    return outputs
+        dyadic_ticks(axis, np.asarray([float(r["h"]) for r in rows]))
+        grid(axis)
+        headroom(axis, right=.42, top=.06)
+        stack_labels(axis, labels[panel], max(v for v, _, _ in labels[panel]) * 0 +
+                     sorted({float(r["h"]) for r in rows})[-1])
+    return save(fig, figure_dir, 'trajectory_summary')
 
 
 def _partition_plot(rows, figure_dir: Path) -> list[Path]:
-    fig, axis = plt.subplots(figsize=(3.5, 2.9))
+    fig, axis = plt.subplots(figsize=(4.2, 3.0))
     for kind, label, marker, tint in (
         ('random', 'Random partitions', 'o', color(0)),
         ('contiguous_baseline', 'Contiguous', 'D', color(1)),
@@ -96,10 +109,10 @@ def _partition_plot(rows, figure_dir: Path) -> list[Path]:
         axis.scatter([float(r['integrated_lambda']) for r in selected],
                      [float(r['error_over_h']) for r in selected],
                      marker=marker, color=tint, edgecolor='white', linewidth=.5,
-                     s=27 if kind == 'random' else 42, label=label)
+                     s=27 if kind == 'random' else 46, label=label, zorder=3)
     axis.set_xlabel(r'Integrated variance $\overline{\Lambda}_{\mathcal{P}}$')
     axis.set_ylabel(r'$\widehat{\mathcal{E}}_{\rm tr}(h_{\rm probe})/h_{\rm probe}$')
-    grid(axis, which='major')
+    grid(axis)
     return save(fig, figure_dir, 'partition_variance_vs_error')
 
 

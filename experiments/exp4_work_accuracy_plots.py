@@ -9,11 +9,11 @@ import numpy as np
 
 try:
     from experiments._style import (
-        color, grid, save, use_paper_style,
+        annotate, color, grid, headroom, save, stack_labels, use_paper_style,
     )
 except ModuleNotFoundError:
     from _style import (
-        color, grid, save, use_paper_style,
+        annotate, color, grid, headroom, save, stack_labels, use_paper_style,
     )
 
 import matplotlib.pyplot as plt
@@ -30,7 +30,8 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
     figure_dir = Path(figure_dir) if figure_dir else root / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, axis = plt.subplots(figsize=(3.5, 2.9))
+    fig, axis = plt.subplots(figsize=(4.6, 3.4))
+    labels = []
 
     full = sorted(
         (row for row in rows if row["scheme"] == "full"),
@@ -41,9 +42,9 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
         error = np.array([float(r["rms_error"]) for r in full])
         # The deterministic baseline is the reference the others are read
         # against, so it is drawn heavier and in neutral grey.
-        axis.plot(work, error, color=color(7), linewidth=1.8, zorder=3, label="Full")
+        axis.plot(work, error, color=color(7), linewidth=1.8, zorder=3)
         axis.plot(work, error, "o", color=color(7), markeredgecolor="white", zorder=4)
-
+        labels.append((error[-1], work[-1], "full model", color(7), "bold"))
 
     names = sorted(
         {row["scheme"] for row in rows if row["scheme"] != "full"},
@@ -57,9 +58,9 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
         tint = color(index)
         work = np.array([float(r["work_units"]) for r in selected])
         error = np.array([float(r["rms_error"]) for r in selected])
-        axis.plot(work, error, color=tint, zorder=3, label=rf"$r={selected[0]['batch_size']}$")
+        axis.plot(work, error, color=tint, zorder=3)
         axis.plot(work, error, "o", color=tint, markeredgecolor="white", zorder=4)
-
+        labels.append((error[-1], work[-1], rf"$r={selected[0]['batch_size']}$", tint, "normal"))
 
     axis.set(
         xscale="log", yscale="log",
@@ -67,5 +68,10 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
         ylabel="Terminal RMS error",
     )
     axis.set_xscale("log", base=2)
-    grid(axis, which='major')
+    grid(axis)
+    # Each curve ends at its own work budget, so the labels sit at those ends
+    # rather than being stacked at a common abscissa.
+    headroom(axis, right=.3)
+    for value, position, text, tint, weight in labels:
+        annotate(axis, position, value, text, color=tint, weight=weight)
     return save(fig, figure_dir, "work_accuracy")

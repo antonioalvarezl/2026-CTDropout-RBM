@@ -90,7 +90,17 @@ def use_paper_style() -> None:
 
 
 def grid(axis, which: str = "both") -> None:
-    axis.grid(True, which=which)
+    """Draw the reference grid, minor lines included.
+
+    On the logarithmic sweeps the minor lines are what let a reader read a
+    value off the axis: without them the nearest reference is a whole decade
+    away.  They are drawn fainter than the major lines so they stay behind
+    the data.
+    """
+    axis.grid(True, which="major")
+    if which == "both":
+        axis.grid(True, which="minor", linewidth=0.3, alpha=0.18)
+        axis.set_axisbelow(True)
 
 
 def dyadic_ticks(axis, values, which: str = "x") -> None:

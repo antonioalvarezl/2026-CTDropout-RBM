@@ -127,7 +127,7 @@ that produced the model it shows, so the classification panels land in the
 `exp1` run's `figures/`:
 
 ```text
-classification_{initial,full,random}.pdf       frozen-flow classification panels
+classification_initial.pdf                     the pooled input cloud
 classification_trajectory_{full,random}.pdf    real RK4 paths at h = 2^-11
 ```
 

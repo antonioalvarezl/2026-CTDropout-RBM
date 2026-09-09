@@ -152,6 +152,7 @@ def _disk_mesh(nr, na):
 
 
 def generate_qualitative(classification_run, transport_run, figure_dir, *,
+                         classification_figure_dir=None,
                          source_illustration=None, h=2**-8, overwrite=False,
                          classification_seed=20260908, transport_seed=20260909,
                          sample_seed=20260910, n_transport=1024,
@@ -173,6 +174,11 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
         raise ValueError('Use an even density mesh with at least two radial rings and four angles')
     figure_dir = Path(figure_dir)
     figure_dir.mkdir(parents=True, exist_ok=True)
+    # The classification cloud belongs with the run that trained the classifier.
+    classification_figure_dir = (
+        Path(classification_figure_dir) if classification_figure_dir else figure_dir
+    )
+    classification_figure_dir.mkdir(parents=True, exist_ok=True)
     config_path = figure_dir / 'qualitative_config.json'
     if config_path.exists() and not overwrite:
         raise FileExistsError(f'Choose a new directory; {config_path} already exists')
@@ -277,10 +283,10 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
                   elapsed_seconds=time.perf_counter()-started,
                   density_color_limits=[0., float(max(arrays['density_initial_values'].max(), rho.max()))])
     config_path.write_text(json.dumps(config, indent=2)+'\n')
-    return _qualitative_figure(arrays, figure_dir)
+    return _qualitative_figure(arrays, figure_dir, classification_figure_dir)
 
 
-def _qualitative_figure(arrays, figure_dir):
+def _qualitative_figure(arrays, figure_dir, classification_figure_dir=None):
     """One PDF per panel; titles and color/marker explanations stay in captions."""
     import matplotlib.tri as mtri
     from matplotlib.ticker import MaxNLocator
@@ -288,6 +294,20 @@ def _qualitative_figure(arrays, figure_dir):
     use_paper_style()
     outputs = []
     stages = ('initial', 'full', 'random')
+
+    # Only the initial classification cloud is drawn here: the flow itself is
+    # shown as trajectories, which carry the same points and more.
+    xy = arrays['classification_initial']
+    lo, hi = xy.min(axis=0), xy.max(axis=0)
+    center, radius = (lo + hi) / 2, .58 * max(hi - lo)
+    fig, ax = plt.subplots(figsize=(3.25, 3.25))
+    ax.scatter(*xy.T, s=15, alpha=.95, zorder=3, edgecolors='#23262c', linewidths=.7,
+               c=np.where(arrays['classification_labels'].reshape(-1) > 0, color(1), color(0)))
+    ax.set(xlim=(center[0]-radius, center[0]+radius), ylim=(center[1]-radius, center[1]+radius),
+           aspect='equal', xlabel='$x_1$', ylabel='$x_2$')
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    outputs += save(fig, classification_figure_dir or figure_dir, 'classification_initial')
     if 'transport_initial' not in arrays:
         return outputs
     points = np.vstack([arrays['transport_'+s] for s in stages] +
