@@ -61,9 +61,17 @@ def _comparison_rows(root):
 
 
 def _intervals(axis, x, mean, low, high, tint, resolved=None):
-    """Display zero-reaching intervals honestly at the log plot's lower edge."""
+    """Shade the interval, and mark the ones that reach zero at the axis floor.
+
+    A band reads as one uncertain curve; a rung of vertical bars competes with
+    the data for attention and, at these interval widths, dominates it.
+    """
     floor = axis.get_ylim()[0]
-    axis.vlines(x, np.maximum(low, floor), high, color=tint, alpha=.55, lw=1)
+    # An interval reaching zero has no lower edge on a log axis. Clipping it to
+    # the axis floor would open a full-height wedge, so the band is clipped
+    # just below the estimate and the point itself is flagged instead.
+    axis.fill_between(x, np.maximum(low, mean * 1e-2), high,
+                      color=tint, alpha=.16, lw=0)
     resolved = np.ones(len(x), dtype=bool) if resolved is None else resolved
     axis.plot(x, np.where(resolved, mean, np.nan), color=tint)
     axis.plot(x[resolved], mean[resolved], 'o', color=tint, markeredgecolor='white')

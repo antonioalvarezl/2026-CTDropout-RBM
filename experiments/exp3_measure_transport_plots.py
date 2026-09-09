@@ -9,13 +9,13 @@ import numpy as np
 
 try:
     from experiments._style import (
-        MUTED, annotate, color, dyadic_ticks, grid, headroom, reference_line,
-        save, stack_labels, use_paper_style,
+        MUTED, annotate, color, dyadic_ticks, grid, headroom, save,
+        stack_labels, use_paper_style,
     )
 except ModuleNotFoundError:
     from _style import (
-        MUTED, annotate, color, dyadic_ticks, grid, headroom, reference_line,
-        save, stack_labels, use_paper_style,
+        MUTED, annotate, color, dyadic_ticks, grid, headroom, save,
+        stack_labels, use_paper_style,
     )
 import matplotlib.pyplot as plt
 
@@ -50,17 +50,11 @@ def _gaussian_blur(sigma_pt):
     return _filter
 
 
-def _decade_ticks(axis):
+def _decade_ticks(axis, subs=(1, 2, 5)):
     from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
-    axis.yaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 5)))
+    axis.yaxis.set_major_locator(LogLocator(base=10, subs=subs))
     axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f'{value:g}'))
     axis.yaxis.set_minor_formatter(NullFormatter())
-
-
-def _fit_slope(h, value):
-    """Least-squares log-log slope, for an unlabelled trend guide only."""
-    finite = np.isfinite(value) & (value > 0)
-    return float(np.polyfit(np.log(h[finite]), np.log(value[finite]), 1)[0])
 
 
 def _coupling_figure(root, figure_dir):
@@ -77,9 +71,8 @@ def _coupling_figure(root, figure_dir):
         value = np.array([float(r[key]) for r in rows])
         se = np.array([float(r[se_key]) for r in rows])
         _band(axis, h, value, se, color(index))
-        reference_line(axis, h, value[-1], h[-1], _fit_slope(h, value))
         axis.set(xscale='log', yscale='log', xlabel='Switching interval $h$', ylabel=ylabel)
-        dyadic_ticks(axis, h); grid(axis, which='major'); _decade_ticks(axis)
+        dyadic_ticks(axis, h); grid(axis); _decade_ticks(axis)
         headroom(axis, right=.5, top=.12)
         annotate(axis, h[-1], value[-1], label, color=color(index))
     return save(fig, figure_dir, 'transport_coupling')
@@ -102,7 +95,7 @@ def _density_figure(root, figure_dir):
         labels.append((value[-1], rf'$\|y-c\|={distance:.1f}$', color(index)))
     axes[0].set(xscale='log', yscale='log', xlabel='Switching interval $h$',
                 ylabel=r'$\mathbb{E}\,|\rho_T(x)-\hat\rho_T(x)|^2$')
-    dyadic_ticks(axes[0], h); grid(axes[0], which='major'); _decade_ticks(axes[0])
+    dyadic_ticks(axes[0], h); grid(axes[0]); _decade_ticks(axes[0], subs=(1,))
     headroom(axes[0], right=.5, top=.1)
     stack_labels(axes[0], labels, h[-1])
 
@@ -114,7 +107,6 @@ def _density_figure(root, figure_dir):
     unresolved = np.array([str(r.get('l1_resolved_above_quadrature_floor', 'true')).lower() != 'true'
                            for r in rows])
     axes[1].plot(hl[unresolved], value[unresolved], 'o', mfc='white', mec=color(2))
-    reference_line(axes[1], hl, value[-1], hl[-1], _fit_slope(hl, value))
     floors = [float(r['quadrature_floor']) for r in rows if r.get('quadrature_floor')]
     if floors:
         # The refinement floor varies with h; the flat guide marks its smallest
@@ -122,7 +114,7 @@ def _density_figure(root, figure_dir):
         axes[1].axhline(min(floors), ls=':', color=MUTED, lw=.8)
     axes[1].set(xscale='log', yscale='log', xlabel='Switching interval $h$',
                 ylabel=r'$\mathbb{E}\,\|\rho_T-\hat\rho_T\|_{L^1}$')
-    dyadic_ticks(axes[1], hl); grid(axes[1], which='major'); _decade_ticks(axes[1])
+    dyadic_ticks(axes[1], hl); grid(axes[1]); _decade_ticks(axes[1], subs=(1,))
     headroom(axes[1], right=.42, top=.1)
     annotate(axes[1], hl[-1], value[-1], r'$L^1$ error', color=color(2))
     return save(fig, figure_dir, 'transport_density')

@@ -14,13 +14,13 @@ import numpy as np
 
 try:
     from experiments._style import (
-        color, dyadic_ticks, grid, headroom, reference_line, save,
-        stack_labels, use_paper_style,
+        color, dyadic_ticks, grid, headroom, save, stack_labels,
+        use_paper_style,
     )
 except ModuleNotFoundError:
     from _style import (
-        color, dyadic_ticks, grid, headroom, reference_line, save,
-        stack_labels, use_paper_style,
+        color, dyadic_ticks, grid, headroom, save, stack_labels,
+        use_paper_style,
     )
 
 import matplotlib.pyplot as plt
@@ -62,15 +62,17 @@ def _trajectory_plot(rows, figure_dir: Path) -> list[Path]:
     """Error and its rescaling by ``h``, on one axes pair."""
     fig, axes = plt.subplots(1, 2, figsize=(6.9, 2.9))
     labels = ([], [])
-    reference = None
     for index, name in enumerate(ORDER):
         s, tint = _series(rows, name), color(index)
         if s is None:
             continue
-        h, fine = s["h"], s["fit"]
         for panel, axis in enumerate(axes):
+            # The rescaled panel is only meaningful on the predeclared fine
+            # range, so it shows that range alone.
+            keep = s["fit"] if panel else np.ones(len(s["h"]), dtype=bool)
+            h, fine = s["h"][keep], s["fit"][keep]
             scale = h if panel else np.ones(len(h))
-            value, low, high = [s[k] / scale for k in ("error", "lower", "upper")]
+            value, low, high = [s[k][keep] / scale for k in ("error", "lower", "upper")]
             axis.fill_between(h, low, high, color=tint, alpha=.13, lw=0)
             axis.plot(h, value, color=tint)
             # Filled markers are the predeclared fine range, open ones the
@@ -78,23 +80,17 @@ def _trajectory_plot(rows, figure_dir: Path) -> list[Path]:
             axis.plot(h[fine], value[fine], 'o', color=tint, markeredgecolor='white')
             axis.plot(h[~fine], value[~fine], 'o', mfc='white', mec=tint)
             labels[panel].append((value[-1], LABELS[name], tint))
-        if name == "uniform_fixed_r8":
-            reference = (h[fine], (s["error"] / h)[fine].mean())
-    if reference is not None:
-        # One unlabelled O(h) guide, anchored on the fine range of the
-        # uniform sweep. The slope belongs in the caption.
-        h_fine, level = reference
-        reference_line(axes[0], h_fine, level * h_fine[-1], h_fine[-1], 1.0)
     axes[0].set(yscale='log', ylabel=r'$\widehat{\mathcal{E}}_{\rm tr}(h)$')
     axes[1].set_ylabel(r'$\widehat{\mathcal{E}}_{\rm tr}(h)/h$')
+    every = sorted({float(r["h"]) for r in rows})
+    fine = sorted({float(r["h"]) for r in rows if _as_bool(r["fit_range"])})
     for panel, axis in enumerate(axes):
         axis.set_xscale('log')
         axis.set_xlabel('Switching interval $h$')
-        dyadic_ticks(axis, np.asarray([float(r["h"]) for r in rows]))
+        dyadic_ticks(axis, np.asarray(fine if panel else every))
         grid(axis)
         headroom(axis, right=.42, top=.06)
-        stack_labels(axis, labels[panel], max(v for v, _, _ in labels[panel]) * 0 +
-                     sorted({float(r["h"]) for r in rows})[-1])
+        stack_labels(axis, labels[panel], (fine if panel else every)[-1])
     return save(fig, figure_dir, 'trajectory_summary')
 
 
