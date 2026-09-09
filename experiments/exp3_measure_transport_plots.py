@@ -128,27 +128,11 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
     return _coupling_figure(root, figure_dir) + _density_figure(root, figure_dir)
 
 
-def _disk_mesh(nr, na):
-    """Connected polar mesh for density rendering, including its zero boundary."""
-    angles = 2 * np.pi * np.arange(na) / na
-    rings = np.arange(1, nr + 1) / nr
-    points = np.vstack(([[-1., -1.]],
-                        (-1 + rings[:, None, None] * np.stack((np.cos(angles), np.sin(angles)), axis=1)).reshape(-1, 2)))
-    triangles = [(0, 1+j, 1+(j+1) % na) for j in range(na)]
-    for ring in range(nr-1):
-        a, b = 1 + ring*na, 1 + (ring+1)*na
-        for j in range(na):
-            k = (j+1) % na
-            triangles.extend(((a+j, b+j, b+k), (a+j, b+k, a+k)))
-    return points, np.asarray(triangles)
-
-
 def generate_qualitative(classification_run, transport_run, figure_dir, *,
                          classification_figure_dir=None,
                          source_illustration=None, h=2**-8, overwrite=False,
                          classification_seed=20260908, transport_seed=20260909,
-                         sample_seed=20260910, n_transport=1024,
-                         density_radial_nodes=48, density_angles=192):
+                         sample_seed=20260910, n_transport=1024):
     """Separate panels, using all saved classification splits and a density mesh.
 
     Only new points are integrated when source_illustration is supplied. The
@@ -158,12 +142,10 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
     import torch
     from experiments._paper_common import load_checkpoint
     from rnode.batches import make_uniform_fixed_size, sample_batch_sequence
-    from rnode.data import initial_density, sample_initial_compact
+    from rnode.data import sample_initial_compact
     from rnode.flow import Flow
-    from rnode.transport import integrate_characteristics, terminal_log_density_from_forward
+    from rnode.transport import integrate_characteristics
 
-    if density_radial_nodes < 2 or density_angles < 4 or density_radial_nodes % 2 or density_angles % 2:
-        raise ValueError('Use an even density mesh with at least two radial rings and four angles')
     figure_dir = Path(figure_dir)
     figure_dir.mkdir(parents=True, exist_ok=True)
     # The classification cloud belongs with the run that trained the classifier.
@@ -201,8 +183,7 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
                   transport_schedule_seed=transport_seed, transport_sample_seed=sample_seed,
                   transport_samples=n_transport, classification_run=str(cr), transport_run=str(tr),
                   classification_points='all saved splits, test then train then calibration; illustrative only',
-                  density_method='initial density and learned full-flow density on a mapped mesh; no KDE or renormalization',
-                  density_mesh=dict(radial_nodes=density_radial_nodes, angles=density_angles),
+                  density_method='the illustration densities are the analytic initial and target fields; the transported ones are estimated in generate_transport_density_evolution',
                   numerics=numerics, selection='unchanged predeclared schedules; no selection by appearance',
                   provenance={str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources})
     config_path.write_text(json.dumps(config, indent=2)+'\n')
@@ -246,41 +227,15 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
             arrays.update({name+'_initial': points, name+'_full': full,
                            name+'_random': random, name+'_schedule': np.asarray(schedule)})
             print(f'Illustration: {name}, {len(points)} points, {n_old} reused', flush=True)
-        mesh, triangles = _disk_mesh(density_radial_nodes, density_angles)
-        terminal, inc = integrate_characteristics(flow, torch.as_tensor(mesh), 1., numerics[1]['full_dt'], 1., track_log_density=True)
-        rho = np.exp(terminal_log_density_from_forward(initial_density, mesh, inc.numpy()))
-        arrays.update(density_initial_mesh=mesh, density_full_mesh=terminal.numpy(), density_triangles=triangles,
-                      density_initial_values=initial_density(mesh), density_full_values=rho)
-        # Compare a nested coarse mesh using the SAME characteristic evaluations.
-        # This isolates interpolation/mesh sensitivity, not integration error.
-        nr, na = density_radial_nodes, density_angles
-        if nr % 2 or na % 2:
-            raise ValueError('Density mesh sizes must be even for the nested check')
-        coarse_indices = np.r_[0, (1 + np.arange(1, nr, 2)[:, None]*na + np.arange(0, na, 2)).ravel()]
-        _, coarse_triangles = _disk_mesh(nr//2, na//2)
-        for stage in ('initial', 'full'):
-            xy, values = arrays['density_'+stage+'_mesh'], arrays['density_'+stage+'_values']
-            mass = []
-            for indices, tri in ((np.arange(len(xy)), triangles), (coarse_indices, coarse_triangles)):
-                v = xy[indices][tri]
-                u, w = v[:, 1]-v[:, 0], v[:, 2]-v[:, 0]
-                area = .5*(u[:, 0]*w[:, 1]-u[:, 1]*w[:, 0])
-                if np.any(area <= 0):
-                    raise ValueError('Folded density rendering mesh; refine before plotting')
-                mass.append(float(np.sum(area * values[indices][tri].mean(axis=1))))
-            diagnostics.append(dict(density=stage, fine_mesh_mass=mass[0], coarse_mesh_mass=mass[1],
-                                    mass_refinement_difference=mass[0]-mass[1]))
     np.savez_compressed(figure_dir/'qualitative_samples.npz', **arrays)
     config.update(classification_samples=len(xclass), diagnostics=diagnostics,
-                  elapsed_seconds=time.perf_counter()-started,
-                  density_color_limits=[0., float(max(arrays['density_initial_values'].max(), rho.max()))])
+                  elapsed_seconds=time.perf_counter()-started)
     config_path.write_text(json.dumps(config, indent=2)+'\n')
     return _qualitative_figure(arrays, figure_dir, classification_figure_dir)
 
 
 def _qualitative_figure(arrays, figure_dir, classification_figure_dir=None):
     """One PDF per panel; titles and color/marker explanations stay in captions."""
-    import matplotlib.tri as mtri
     from matplotlib.ticker import MaxNLocator
 
     use_paper_style()
@@ -302,47 +257,36 @@ def _qualitative_figure(arrays, figure_dir, classification_figure_dir=None):
     outputs += save(fig, classification_figure_dir or figure_dir, 'classification_initial')
     if 'transport_initial' not in arrays:
         return outputs
-    points = np.vstack([arrays['transport_'+s] for s in stages] +
-                       [arrays['density_initial_mesh'], arrays['density_full_mesh']])
-    lo, hi = points.min(axis=0), points.max(axis=0)
+    # Both fields are known in closed form, so the view follows their supports:
+    # the unit ball of rho_B and three standard deviations around each mode.
+    from rnode.data import (INITIAL_CENTER, TARGET_MIXTURE_CENTERS,
+                            TARGET_MIXTURE_COVARIANCES)
+    spread = 3 * np.sqrt(np.array([np.diag(c) for c in TARGET_MIXTURE_COVARIANCES]))
+    corners = np.vstack((INITIAL_CENTER - 1, INITIAL_CENTER + 1,
+                         TARGET_MIXTURE_CENTERS - spread, TARGET_MIXTURE_CENTERS + spread))
+    lo, hi = corners.min(axis=0), corners.max(axis=0)
     padding = .055*(hi-lo)
     limits = dict(xlim=(lo[0]-padding[0], hi[0]+padding[0]), ylim=(lo[1]-padding[1], hi[1]+padding[1]),
                   aspect='equal', xlabel='$x_1$', ylabel='$x_2$')
-    for stage in ('densities', 'full', 'random'):
-        fig, ax = plt.subplots(figsize=(3.7, 3.0))
-        if stage == 'densities':
-            # Filled level sets with thin black isolines. The initial and
-            # terminal densities share one positive-floor level scale, so the
-            # terminal blob reads as lighter because its mass has spread, not
-            # because it was rescaled.
-            vmax = max(arrays['density_initial_values'].max(), arrays['density_full_values'].max())
-            levels = np.linspace(.05 * vmax, vmax, 11)
-            ax.set_facecolor(plt.get_cmap('Oranges')(.05))
-            for name in ('initial', 'full'):
-                tri = mtri.Triangulation(*arrays['density_'+name+'_mesh'].T, arrays['density_triangles'])
-                ax.tricontourf(tri, arrays['density_'+name+'_values'], levels=levels,
-                               cmap='Oranges', extend='max')
-                ax.tricontour(tri, arrays['density_'+name+'_values'], levels=levels,
-                              colors='#1a1a1a', linewidths=.35, alpha=.8)
-            # The mixture the flow was matched towards, as an outline only.
-            # It is the training reference, not the reference against which the
-            # random-batch errors are measured, and the learned terminal density
-            # is visibly flatter than it: the gap is the flow's own error.
-            from rnode.data import target_density
-            gx, gy = np.meshgrid(np.linspace(*limits['xlim'], 320),
-                                 np.linspace(*limits['ylim'], 320))
-            # Every third level only: the narrow third component would
-            # otherwise crowd the outline into a solid disc.
-            ax.contour(gx, gy, target_density(np.stack((gx, gy), axis=-1)),
-                       levels=levels[::3], colors=MUTED, linewidths=.55,
-                       linestyles='dashed', alpha=.85)
-        else:
-            for name, tint in (('initial', color(0)), (stage, color(1))):
-                ax.scatter(*arrays['transport_'+name].T, c=tint, s=4, alpha=.45, linewidths=0)
-        ax.set(**limits)
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
-        outputs += save(fig, figure_dir, 'transport_'+('densities' if stage=='densities' else stage+'_samples'))
+    # The problem the flow is asked to solve: both fields are analytic, so
+    # this panel involves no sample, no mesh and no kernel estimate.
+    from rnode.data import initial_density, target_density
+    fig, ax = plt.subplots(figsize=(3.7, 3.0))
+    gx, gy = np.meshgrid(np.linspace(*limits['xlim'], 480),
+                         np.linspace(*limits['ylim'], 480))
+    points = np.stack((gx, gy), axis=-1)
+    initial, target = initial_density(points), target_density(points)
+    vmax = max(initial.max(), target.max())
+    levels = np.linspace(.05 * vmax, vmax, 11)
+    ax.set_facecolor(plt.get_cmap('Oranges')(.05))
+    for field in (initial, target):
+        ax.contourf(gx, gy, field, levels=levels, cmap='Oranges', extend='max')
+        ax.contour(gx, gy, field, levels=levels, colors='#1a1a1a',
+                   linewidths=.35, alpha=.8)
+    ax.set(**limits)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    outputs += save(fig, figure_dir, 'transport_densities')
     return outputs
 
 
