@@ -26,3 +26,4 @@ htmlcov/
 !.env.example
 outputs/
 results/
+numerical_experiments.tex
