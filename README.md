@@ -122,12 +122,18 @@ python -m experiments.exp3_measure_transport --qualitative
 ```
 
 That takes the most recent `exp1` and `exp3` runs (override with
-`--classification-dir` / `--output-dir`) and writes, into the `exp3` run's
-`figures/`:
+`--classification-dir` / `--output-dir`). Each panel is written beside the run
+that produced the model it shows, so the classification panels land in the
+`exp1` run's `figures/`:
 
 ```text
 classification_{initial,full,random}.pdf       frozen-flow classification panels
 classification_trajectory_{full,random}.pdf    real RK4 paths at h = 2^-11
+```
+
+and the transport panels in the `exp3` run's:
+
+```text
 transport_densities.pdf                        initial and terminal density level sets
 transport_{full,random}_samples.pdf            the 1024-sample clouds
 transport_density_{full,random}_evolution.pdf  rho_0 plus four KDE times
