@@ -50,19 +50,6 @@ def _gaussian_blur(sigma_pt):
     return _filter
 
 
-def _soft_trajectories(ax, starts, ends, tint, *, blur=2.2, alpha=.11, width=.9):
-    """Draw start-to-end segments as one softly blurred, low-opacity bundle."""
-    from matplotlib.collections import LineCollection
-
-    segments = np.stack((starts, ends), axis=1)
-    bundle = LineCollection(segments, colors=[tint], linewidths=width, alpha=alpha,
-                            capstyle='round', zorder=1, rasterized=True)
-    blur_filter = _gaussian_blur(blur)
-    if blur_filter is not None:
-        bundle.set_agg_filter(blur_filter)
-    ax.add_collection(bundle)
-
-
 def _decade_ticks(axis):
     from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
     axis.yaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 5)))
@@ -165,7 +152,6 @@ def _disk_mesh(nr, na):
 
 
 def generate_qualitative(classification_run, transport_run, figure_dir, *,
-                         classification_figure_dir=None,
                          source_illustration=None, h=2**-8, overwrite=False,
                          classification_seed=20260908, transport_seed=20260909,
                          sample_seed=20260910, n_transport=1024,
@@ -187,12 +173,6 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
         raise ValueError('Use an even density mesh with at least two radial rings and four angles')
     figure_dir = Path(figure_dir)
     figure_dir.mkdir(parents=True, exist_ok=True)
-    # The classification panels belong with the run that trained the classifier,
-    # so they are written to its own figure directory when one is given.
-    classification_figure_dir = (
-        Path(classification_figure_dir) if classification_figure_dir else figure_dir
-    )
-    classification_figure_dir.mkdir(parents=True, exist_ok=True)
     config_path = figure_dir / 'qualitative_config.json'
     if config_path.exists() and not overwrite:
         raise FileExistsError(f'Choose a new directory; {config_path} already exists')
@@ -297,43 +277,17 @@ def generate_qualitative(classification_run, transport_run, figure_dir, *,
                   elapsed_seconds=time.perf_counter()-started,
                   density_color_limits=[0., float(max(arrays['density_initial_values'].max(), rho.max()))])
     config_path.write_text(json.dumps(config, indent=2)+'\n')
-    return _qualitative_figure(arrays, figure_dir, classification_figure_dir)
+    return _qualitative_figure(arrays, figure_dir)
 
 
-def _qualitative_figure(arrays, figure_dir, classification_figure_dir=None):
+def _qualitative_figure(arrays, figure_dir):
     """One PDF per panel; titles and color/marker explanations stay in captions."""
     import matplotlib.tri as mtri
     from matplotlib.ticker import MaxNLocator
 
     use_paper_style()
-    classification_figure_dir = classification_figure_dir or figure_dir
     outputs = []
-    # The targets are not drawn: they are stated in the text and plotting them
-    # only competes with the transported cloud for attention.
     stages = ('initial', 'full', 'random')
-    all_class = np.vstack([arrays['classification_'+s] for s in stages])
-    lo, hi = all_class.min(axis=0), all_class.max(axis=0)
-    center, radius = (lo+hi)/2, .56*max(hi-lo)
-    colors = np.where(arrays['classification_labels'].reshape(-1)>0, color(1), color(0))
-    for stage in stages:
-        fig, ax = plt.subplots(figsize=(3.25, 3.25))
-        xy = arrays['classification_'+stage]
-        if stage != 'initial':
-            # Keep the identity of every point across the flow.  The blurred
-            # segments show trajectories as a soft haze; the endpoint cloud
-            # keeps the class colors readable at publication size.
-            initial = arrays['classification_initial']
-            for cls, tint in ((-1, color(0)), (1, color(1))):
-                selected = arrays['classification_labels'].reshape(-1) == cls
-                _soft_trajectories(ax, initial[selected], xy[selected], tint)
-        # A dark rim keeps individual points separable where the cloud is dense.
-        ax.scatter(*xy.T, c=colors, s=15, alpha=.95, zorder=3,
-                   edgecolors='#23262c', linewidths=.7)
-        ax.set(xlim=(center[0]-radius, center[0]+radius), ylim=(center[1]-radius, center[1]+radius),
-               aspect='equal', xlabel='$x_1$', ylabel='$x_2$')
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
-        outputs += save(fig, classification_figure_dir, 'classification_'+stage)
     if 'transport_initial' not in arrays:
         return outputs
     points = np.vstack([arrays['transport_'+s] for s in stages] +

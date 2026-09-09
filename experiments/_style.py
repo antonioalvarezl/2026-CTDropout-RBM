@@ -15,11 +15,11 @@ import numpy as np
 
 
 PALETTE = (
-    "#376A8A",  # blue
-    "#D78B38",  # orange
-    "#56816D",  # green
-    "#B45151",  # red
-    "#8A76A5",  # purple
+    "#1f77b4",  # blue
+    "#ff7f0e",  # orange
+    "#2ca02c",  # green
+    "#d62728",  # red
+    "#9467bd",  # purple
     "#8c564b",  # brown
     "#e377c2",  # pink
     "#7f7f7f",  # grey
