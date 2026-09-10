@@ -142,9 +142,14 @@ def generate_plots(output_dir: str | Path, *, figure_dir=None) -> list[Path]:
                 stack_labels(axes[panel],
                              [(value, text, tint) for _, value, text, tint, _ in here],
                              position)
-    # The step legend is achromatic: colour already carries the batch size.
+    # The step legend is achromatic: colour already carries the batch size. It
+    # is titled because it describes the randomized curves alone -- the full
+    # model has no switching scale, so its step is swept independently and it
+    # contributes the single grey curve.
     handles = [plt.Line2D([], [], color=GUIDE, linestyle=style, linewidth=1.2,
                           label=text) for style, text in STEP_STYLES.values()]
-    axes[0].legend(handles=handles, loc="lower left", fontsize=7.5,
-                   handlelength=2.2, borderpad=0.2, labelspacing=0.3)
+    legend = axes[0].legend(handles=handles, loc="lower left", fontsize=7.5,
+                            handlelength=2.2, borderpad=0.2, labelspacing=0.3,
+                            title="Random batching", alignment="left")
+    legend.get_title().set_fontsize(7.5)
     return save(fig, figure_dir, "work_accuracy")
