@@ -9,12 +9,12 @@ import numpy as np
 
 try:
     from experiments._style import (
-        MUTED, annotate, color, dyadic_ticks, grid, headroom, save,
+        annotate, color, dyadic_ticks, grid, headroom, save,
         stack_labels, use_paper_style,
     )
 except ModuleNotFoundError:
     from _style import (
-        MUTED, annotate, color, dyadic_ticks, grid, headroom, save,
+        annotate, color, dyadic_ticks, grid, headroom, save,
         stack_labels, use_paper_style,
     )
 import matplotlib.pyplot as plt
@@ -107,14 +107,9 @@ def _density_figure(root, figure_dir):
     unresolved = np.array([str(r.get('l1_resolved_above_quadrature_floor', 'true')).lower() != 'true'
                            for r in rows])
     axes[1].plot(hl[unresolved], value[unresolved], 'o', mfc='white', mec=color(2))
-    floors = [float(r['quadrature_floor']) for r in rows if r.get('quadrature_floor')]
-    if floors:
-        # The refinement floor varies with h; the flat guide marks its smallest
-        # value, i.e. the most optimistic resolution these estimates could claim.
-        axes[1].axhline(min(floors), ls=':', color=MUTED, lw=.8)
     axes[1].set(xscale='log', yscale='log', xlabel='Switching interval $h$',
                 ylabel=r'$\mathbb{E}\,\|\rho_T-\hat\rho_T\|_{L^1}$')
-    dyadic_ticks(axes[1], hl); grid(axes[1]); _decade_ticks(axes[1], subs=(1,))
+    dyadic_ticks(axes[1], hl); grid(axes[1]); _decade_ticks(axes[1])
     headroom(axes[1], right=.42, top=.1)
     annotate(axes[1], hl[-1], value[-1], r'$L^1$ error', color=color(2))
     return save(fig, figure_dir, 'transport_density')
