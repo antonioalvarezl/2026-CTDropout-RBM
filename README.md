@@ -45,7 +45,7 @@ python -m pytest -q
 | `exp1_trajectory_convergence` | Trajectory error and sampling design |
 | `exp2_objective_consistency` | Strong and weak objective consistency, and a sampling-scheme comparison |
 | `exp3_measure_transport` | Coupling, pointwise density, and `L1` errors |
-| `exp4_work_accuracy` | Work against accuracy |
+| `exp4_work_accuracy` | Work against accuracy, and against test loss |
 
 Add `--quick` for a small smoke run; without it the scripts use the paper
 settings.

@@ -59,7 +59,7 @@ def experiment_configuration(quick: bool) -> dict:
     """Numerical choices for the compact work--accuracy experiment."""
     if quick:
         return {
-            "gamma": 0.25,
+            "gammas": [0.5, 0.25],
             "h_powers": [3, 4, 5, 6],
             "batch_sizes": [4, 8, 12],
             "n_schedules": 8,
@@ -68,7 +68,7 @@ def experiment_configuration(quick: bool) -> dict:
             "reference_check_dt": 2.0**-10,
         }
     return {
-        "gamma": 0.25,
+        "gammas": [0.5, 0.25],
         "h_powers": [4, 5, 6, 7, 8, 9],
         "batch_sizes": [4, 8, 12],
         "n_schedules": 80,
@@ -91,6 +91,11 @@ def _deterministic_rms(trajectory: torch.Tensor, reference: torch.Tensor) -> flo
     return float(torch.sqrt(squared.max(dim=0).values.mean()).cpu())
 
 
+def _test_loss(terminal: torch.Tensor, targets: torch.Tensor) -> float:
+    """mean_data ||x_T-y||^2 for one realized terminal state."""
+    return float((terminal - targets).square().sum(dim=-1).mean().cpu())
+
+
 ACCURACY_NOTE = (
     "Accuracy is the terminal RMS error. Every method carries t=T on its own "
     "grid, so this is one functional evaluated identically for all of them. A "
@@ -102,11 +107,20 @@ ACCURACY_NOTE = (
     "diagnostic and must not be compared across different steps."
 )
 
+PREDICTIVE_NOTE = (
+    "test_loss is mean_data ||x_T-y||^2 on the held-out test split, with the "
+    "squared error of each realized terminal state averaged over schedules. "
+    "The loss of the schedule-averaged prediction is deliberately NOT "
+    "reported: that would evaluate a different, ensemble, predictor. The "
+    "control is frozen and no configuration is selected using these labels."
+)
+
 
 @torch.no_grad()
-def _random_rms(
+def _random_accuracy(
     model,
     features: torch.Tensor,
+    targets: torch.Tensor,
     reference_times: torch.Tensor,
     reference_values: torch.Tensor,
     *,
@@ -116,7 +130,11 @@ def _random_rms(
     scheme,
     schedule_seeds: np.ndarray,
 ) -> dict:
-    """Compute the theorem-ordered RMS statistic without storing all realizations."""
+    """RMS against the full flow and test loss against the labels, per schedule.
+
+    Only the running sums and one scalar loss per schedule are kept, so the
+    realizations themselves are never stored.
+    """
     n_steps = int(round(T / dt))
     requested_times = torch.linspace(
         0.0,
@@ -134,6 +152,7 @@ def _random_rms(
         device=features.device,
     )
 
+    losses = []
     n_intervals = int(round(T / h))
     for seed in schedule_seeds:
         schedule = sample_batch_sequence(
@@ -154,12 +173,19 @@ def _random_rms(
         if not torch.allclose(times, requested_times):
             raise RuntimeError("unexpected integration grid")
         error_sum += (trajectory - reference).square().sum(dim=-1)
+        # One loss per realization: the schedule average is taken over these
+        # scalars, not over the predictions, which would be another predictor.
+        losses.append(_test_loss(trajectory[-1], targets))
 
     mean_error = error_sum / len(schedule_seeds)
+    losses = np.asarray(losses, dtype=float)
     return {
         "rms_error": float(torch.sqrt(mean_error[-1].mean()).cpu()),
         "rms_error_max_own_grid": float(torch.sqrt(mean_error.max(dim=0).values.mean()).cpu()),
         "own_grid_nodes": int(mean_error.shape[0]),
+        "test_loss": float(losses.mean()),
+        "se_test_loss": float(losses.std(ddof=1) / np.sqrt(losses.size))
+        if losses.size > 1 else 0.0,
     }
 
 
@@ -217,7 +243,8 @@ def run_experiment(args):
     base = prepared["base_config"]
     T = float(base["model"]["T"])
     p = int(model.hidden_dim)
-    features = prepared["datasets"]["test"][0]
+    # Evaluation is on the held-out test split only; the control stays frozen.
+    features, _, targets = prepared["datasets"]["test"]
 
     report_progress("exp4", "Computing accurate full reference", started=started)
     reference_times, reference, reference_check_rms = _reference_check(
@@ -227,12 +254,16 @@ def run_experiment(args):
         config["reference_dt"],
         config["reference_check_dt"],
     )
+    # The fine RK4 flow is both the accuracy reference and the predictive
+    # baseline: the test loss the frozen control attains when integrated exactly.
+    reference_test_loss = _test_loss(reference[-1], targets)
     write_csv(
         paths.data / "reference_check.csv",
         [{
             "reference_dt": config["reference_dt"],
             "check_dt": config["reference_check_dt"],
             "rms_difference": reference_check_rms,
+            "test_loss": reference_test_loss,
         }],
     )
 
@@ -255,10 +286,13 @@ def run_experiment(args):
             "scheme_label": "Full model",
             "batch_size": p,
             "h": "",
+            "gamma": "",
             "dt": dt,
             "rms_error": float(torch.sqrt(squared[-1].mean()).cpu()),
             "rms_error_max_own_grid": _deterministic_rms(trajectory, reference_on_grid),
             "own_grid_nodes": int(squared.shape[0]),
+            "test_loss": _test_loss(trajectory[-1], targets),
+            "se_test_loss": 0.0,
             "n_steps": n_steps,
             # Euler takes one stage per step, so each step evaluates the
             # control once and p neuron components once.
@@ -269,11 +303,14 @@ def run_experiment(args):
         })
 
     # RBM: uniform fixed-size batches, dt = gamma h, as in the first-order work model.
-    total_cases = len(config["batch_sizes"]) * len(config["h_powers"])
+    # The two gammas are the same experiment at two Euler steps: the schedules
+    # are drawn per h alone, so a given (h, r) pair is integrated from the same
+    # realizations at dt=h/2 and dt=h/4 and the comparison stays paired.
+    total_cases = (len(config["gammas"]) * len(config["batch_sizes"])
+                   * len(config["h_powers"]))
     completed = 0
     for h_power in config["h_powers"]:
         h = 2.0 ** (-h_power)
-        dt = config["gamma"] * h
         seeds = _schedule_seeds(
             prepared["seeds"]["schedule_generation"],
             h_power,
@@ -281,42 +318,49 @@ def run_experiment(args):
         )
         schedule_manifest[str(h)] = seeds.tolist()
 
-        for r in config["batch_sizes"]:
-            completed += 1
-            report_progress(
-                "exp4",
-                f"RBM case {completed}/{total_cases}: r={r}, h=2^-{h_power}",
-                started=started,
-            )
-            scheme = make_uniform_fixed_size(p, r)
-            accuracy = _random_rms(
-                model,
-                features,
-                reference_times,
-                reference,
-                T=T,
-                h=h,
-                dt=dt,
-                scheme=scheme,
-                schedule_seeds=seeds,
-            )
-            n_steps = int(round(T / dt))
-            rows.append({
-                "scheme": f"uniform_r{r}",
-                "scheme_label": f"Uniform fixed-size, r={r}",
-                "batch_size": r,
-                "h": h,
-                "dt": dt,
-                **accuracy,
-                "n_steps": n_steps,
-                # Only the component count shrinks with r. The control is
-                # generated once per step whatever the batch size, so it is
-                # reported separately rather than folded into the proxy.
-                "component_evaluations": n_steps * r,
-                "control_evaluations": n_steps,
-                "work_units": n_steps * r,
-                "n_schedules": len(seeds),
-            })
+        for gamma in config["gammas"]:
+            dt = gamma * h
+            for r in config["batch_sizes"]:
+                completed += 1
+                report_progress(
+                    "exp4",
+                    f"RBM case {completed}/{total_cases}: r={r}, h=2^-{h_power}, "
+                    f"dt=h/{round(1 / gamma)}",
+                    started=started,
+                )
+                scheme = make_uniform_fixed_size(p, r)
+                accuracy = _random_accuracy(
+                    model,
+                    features,
+                    targets,
+                    reference_times,
+                    reference,
+                    T=T,
+                    h=h,
+                    dt=dt,
+                    scheme=scheme,
+                    schedule_seeds=seeds,
+                )
+                n_steps = int(round(T / dt))
+                rows.append({
+                    "scheme": f"uniform_r{r}_g{round(1 / gamma)}",
+                    "scheme_label": f"Uniform fixed-size, r={r}, dt=h/{round(1 / gamma)}",
+                    "batch_size": r,
+                    "h": h,
+                    "gamma": gamma,
+                    "dt": dt,
+                    **accuracy,
+                    "n_steps": n_steps,
+                    # Per input trajectory and per schedule, so the abscissa is
+                    # the cost of one evaluation, not of the Monte Carlo sweep.
+                    # Only the component count shrinks with r: the control is
+                    # generated once per step whatever the batch size, so it is
+                    # reported separately rather than folded into the proxy.
+                    "component_evaluations": n_steps * r,
+                    "control_evaluations": n_steps,
+                    "work_units": n_steps * r,
+                    "n_schedules": len(seeds),
+                })
 
     write_csv(paths.data / "work_accuracy.csv", rows)
     write_json(paths.data / "schedule_seeds.json", schedule_manifest)
@@ -331,9 +375,12 @@ def run_experiment(args):
         "integrator": "explicit Euler",
         "reference_integrator": "RK4",
         "accuracy_metric": ACCURACY_NOTE,
+        "predictive_metric": PREDICTIVE_NOTE,
         "work_proxy": (
             "work_units counts evaluated neuron components per input "
             "trajectory: for RBM W=(T/dt)r=T r/(gamma h), for full W=(T/dt_F)p. "
+            "Both are per input trajectory and per schedule, so they measure "
+            "one evaluation rather than the cost of the Monte Carlo repetitions. "
             "control_evaluations counts hyper-network evaluations, which are "
             "one per step regardless of r and are therefore NOT reduced by "
             "random batching; the paper's proxy omits them, so work_units "
@@ -348,6 +395,7 @@ def run_experiment(args):
             "not evidence of speedup"
         ),
         "reference_check_rms": reference_check_rms,
+        "reference_test_loss": reference_test_loss,
         "training_seconds": prepared["training_seconds"],
         "total_seconds": elapsed,
     }
@@ -364,6 +412,7 @@ def run_experiment(args):
         paths.data / "summary.json",
         {
             "reference_check_rms": reference_check_rms,
+            "reference_test_loss": reference_test_loss,
             "rows": rows,
             "total_seconds": elapsed,
             "quick_mode_warning": bool(args.quick),
@@ -377,6 +426,7 @@ def run_experiment(args):
         "output_dir": str(paths.root),
         "figures": [str(path) for path in figures],
         "reference_check_rms": reference_check_rms,
+        "reference_test_loss": reference_test_loss,
         "total_seconds": elapsed,
     }
 
